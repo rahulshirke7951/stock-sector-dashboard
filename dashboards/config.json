@@ -1,1 +1,27 @@
+{
+  "time_period": "1y",
+
+  "sectors": {
+    "Banking": [
+      "HDFCBANK.NS",
+      "ICICIBANK.NS",
+      "SBIN.NS"
+    ],
+
+    "Aviation": [
+      "INDIGO.NS",
+      "SPICEJET.NS"
+    ],
+
+    "Consumer": [
+      "HINDUNILVR.NS",
+      "ITC.NS"
+    ]
+  },
+
+  "output": {
+    "folder": "dashboards",
+    "format": "xlsx"
+  }
+}
 
