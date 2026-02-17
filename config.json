@@ -1,27 +1,23 @@
 {
-  "time_period": "1y",
+  "from_date": "2023-01-01",
+  "to_date": null,
+
+  "analytics": {
+    "monthly_returns": true,
+    "yearly_summary": true,
+    "cagr": true,
+    "rolling_12m": true,
+    "sector_average": true,
+    "sector_growth_since_start": true
+  },
 
   "sectors": {
-    "Banking": [
-      "HDFCBANK.NS",
-      "ICICIBANK.NS",
-      "SBIN.NS"
-    ],
-
-    "Aviation": [
-      "INDIGO.NS",
-      "SPICEJET.NS"
-    ],
-
-    "Consumer": [
-      "HINDUNILVR.NS",
-      "ITC.NS"
-    ]
+    "Banking": ["HDFCBANK.NS", "ICICIBANK.NS", "SBIN.NS"],
+    "Aviation": ["INDIGO.NS"],
+    "Consumer": ["HINDUNILVR.NS", "ITC.NS"]
   },
 
   "output": {
-    "folder": "dashboards",
-    "format": "xlsx"
+    "folder": "dashboards"
   }
 }
-
