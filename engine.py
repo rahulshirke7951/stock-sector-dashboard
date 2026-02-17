@@ -1,9 +1,10 @@
-# Here you will have the complete content of the engine.py file with the replacement made. For demonstration purposes, this is how the updated line will look like:
+import pandas as pd
 
-# Original line of code:
-# df = df.resample('M')
+# Load your stock sector data
+df = pd.read_csv('data.csv', parse_dates=['Date'], index_col='Date')
 
-# Updated line of code:
-df = df.resample('ME')
+# Resample to monthly data (Month End)
+df = df.resample('ME').mean()
 
-# ... rest of your code ...
+# Continue with your processing...
+print(df.head())
