@@ -1,5 +1,6 @@
 pandas
 yfinance
 openpyxl
-streamlit
+streamlit==1.29.0
 plotly
+altair<5
