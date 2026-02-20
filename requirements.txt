@@ -1,7 +1,13 @@
-streamlit==1.29.0
-pandas>=2.0
-numpy
-openpyxl
-plotly>=5.0
-altair<5
-yfinance
+# Core Framework
+streamlit>=1.40.0
+pandas>=2.2.0
+
+# Dependencies for Financial Data & Excel
+yfinance>=0.2.50
+openpyxl>=3.1.0
+numpy>=1.26.0
+
+# Visualization & UI Styling
+plotly>=6.0.0
+matplotlib>=3.10.0
+altair>=5.2.0
