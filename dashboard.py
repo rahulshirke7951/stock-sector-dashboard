@@ -6,7 +6,7 @@ import plotly.express as px
 # ---------- Page Config ----------
 st.set_page_config(page_title="Sector Stock Dashboard", layout="wide", page_icon="📈")
 
-# ---------- Custom CSS for Modern UI ----------
+# ---------- Custom CSS (Modern Glassmorphism) ----------
 st.markdown("""
     <style>
     .main { background-color: #f8f9fa; }
@@ -17,9 +17,6 @@ st.markdown("""
         box-shadow: 0 4px 6px rgba(0,0,0,0.05);
         border: 1px solid #eee;
     }
-    [data-testid="stSidebar"] { background-color: #1e293b; }
-    .stTabs [data-baseweb="tab-list"] { gap: 24px; }
-    .stTabs [data-baseweb="tab"] { height: 50px; font-weight: 600; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -27,111 +24,79 @@ st.markdown("""
 folder = "dashboards"
 
 if not os.path.exists(folder):
-    st.error("📂 Folder 'dashboards' not found. Ensure your GitHub workflow has run.")
+    st.error("📂 Folder 'dashboards' not found. Check your file path.")
     st.stop()
 
-files = [f for f in os.listdir(folder) if f.endswith(".xlsx")]
+# We look for simple names like 'Automobile.xlsx' now
+files = sorted([f for f in os.listdir(folder) if f.endswith(".xlsx")])
 
 if not files:
-    st.warning("⚠️ No sector files available yet.")
+    st.warning("⚠️ No sector files found. Please run your data-fetcher script first.")
     st.stop()
 
-# ---------- Sidebar Selection ----------
+# ---------- Sidebar ----------
 with st.sidebar:
-    st.title("📊 Navigation")
-    selected_file = st.selectbox("🎯 Choose Sector", files)
+    st.title("Settings")
+    selected_file = st.selectbox("🎯 Select Sector", files)
     file_path = os.path.join(folder, selected_file)
     st.divider()
-    st.info("💡 Data is refreshed automatically via GitHub Actions.")
+    st.caption("Auto-updated daily at 12:00 UTC via GitHub Actions.")
 
-# ---------- Data Loading & Processing ----------
+# ---------- Data Loading ----------
 try:
-    # Load dataframes
     summary = pd.read_excel(file_path, sheet_name="summary")
     cagr = pd.read_excel(file_path, sheet_name="cagr")
     monthly = pd.read_excel(file_path, sheet_name="monthly_returns", index_col=0)
-
-    # Clean column names (strip spaces just in case)
-    summary.columns = summary.columns.str.strip()
-    cagr.columns = cagr.columns.str.strip()
     
-    # Identify the ticker column (usually the first one)
     ticker_col = summary.columns[0]
-    
 except Exception as e:
-    st.error(f"❌ Error loading Excel sheets: {e}")
+    st.error(f"❌ Error reading sheets: {e}")
     st.stop()
 
-# ---------- Header Section ----------
-sector_display = selected_file.split('_')[0].replace(".xlsx", "").title()
-st.title(f"📊 {sector_display} Sector Performance")
-st.caption(f"Analyzing data from: {selected_file}")
+# ---------- Header ----------
+# Clean up filename for display: 'Automobile.xlsx' -> 'Automobile'
+sector_name = selected_file.replace(".xlsx", "").replace("_", " ").title()
+st.title(f"📊 {sector_name} Analysis")
 
-# ---------- Metric Highlights ----------
+# ---------- Metrics ----------
 if "Total Return %" in summary.columns:
-    # Calculate key metrics
-    best_idx = summary["Total Return %"].idxmax()
-    best_stock = summary.loc[best_idx, ticker_col]
-    best_val = summary.loc[best_idx, "Total Return %"]
-
-    worst_idx = summary["Total Return %"].idxmin()
-    worst_stock = summary.loc[worst_idx, ticker_col]
-    worst_val = summary.loc[worst_idx, "Total Return %"]
-
-    avg_ret = summary["Total Return %"].mean()
+    # Use loc[idxmax] to get the specific ticker name correctly
+    best_row = summary.loc[summary["Total Return %"].idxmax()]
+    worst_row = summary.loc[summary["Total Return %"].idxmin()]
 
     m1, m2, m3 = st.columns(3)
-    m1.metric("🏆 Top Performer", f"{best_stock}", f"{best_val:.2f}%")
-    m2.metric("📉 Worst Performer", f"{worst_stock}", f"{worst_val:.2f}%", delta_color="inverse")
-    m3.metric("📈 Sector Average", "Total Return", f"{avg_ret:.2f}%")
+    m1.metric("🏆 Top Performer", best_row[ticker_col], f"{best_row['Total Return %']:.2f}%")
+    m2.metric("📉 Worst Performer", worst_row[ticker_col], f"{worst_row['Total Return %']:.2f}%", delta_color="inverse")
+    m3.metric("📈 Sector Avg", "Total Return", f"{summary['Total Return %'].mean():.2f}%")
 
-st.divider()
+# ---------- Tabs ----------
+tab1, tab2, tab3 = st.tabs(["📊 Visuals", "📋 Data", "📅 Monthly Heatmap"])
 
-# ---------- Tabs Layout ----------
-tab_visuals, tab_summary, tab_monthly = st.tabs(["📊 Performance Visuals", "📋 Summary Data", "📅 Monthly Heatmap"])
-
-with tab_visuals:
-    col_left, col_right = st.columns(2)
-    
-    with col_left:
-        st.subheader("CAGR (%)")
-        # Ensure we have a value column to plot
+with tab1:
+    c1, c2 = st.columns(2)
+    with c1:
         val_col = cagr.columns[1]
         fig_cagr = px.bar(cagr, x=cagr.columns[0], y=val_col, 
-                          color=val_col, color_continuous_scale='RdYlGn',
-                          labels={val_col: 'CAGR %', cagr.columns[0]: 'Ticker'})
-        fig_cagr.update_layout(showlegend=False)
+                          title="CAGR by Ticker", color=val_col,
+                          color_continuous_scale='RdYlGn')
         st.plotly_chart(fig_cagr, use_container_width=True)
-
-    with col_right:
-        st.subheader("Total Return Ranking")
-        ranking_df = summary.sort_values("Total Return %", ascending=True)
-        fig_rank = px.bar(ranking_df, x="Total Return %", y=ticker_col, 
-                          orientation='h', color="Total Return %",
-                          color_continuous_scale='Greens')
+    
+    with c2:
+        rank_df = summary.sort_values("Total Return %").reset_index()
+        fig_rank = px.bar(rank_df, x="Total Return %", y=ticker_col, 
+                          orientation='h', title="Total Return Ranking",
+                          color="Total Return %", color_continuous_scale='Greens')
         st.plotly_chart(fig_rank, use_container_width=True)
 
-with tab_summary:
-    st.subheader("Sector Summary Table")
-    # Display summary with a green highlight on the max values
+with tab2:
+    st.subheader("Performance Summary")
     st.dataframe(summary.style.highlight_max(axis=0, subset=["Total Return %"], color='#d4edda'), 
                  use_container_width=True)
-    
-    st.subheader("CAGR Raw Data")
-    st.dataframe(cagr, use_container_width=True)
 
-with tab_monthly:
+with tab3:
     st.subheader("Monthly Returns Heatmap")
-    st.markdown("Returns are color-coded: **Red** (Negative) to **Green** (Positive).")
-    
-    # Advanced Heatmap Styling (Requires Matplotlib)
     try:
         styled_monthly = monthly.style.background_gradient(cmap='RdYlGn', axis=None).format("{:.2f}%")
         st.dataframe(styled_monthly, use_container_width=True, height=500)
-    except Exception as e:
-        st.warning("Heatmap styling failed. Displaying raw numbers.")
+    except:
         st.dataframe(monthly, use_container_width=True)
-
-# ---------- Footer ----------
-st.divider()
-st.caption(f"Dashboard generated for {sector_display} Sector. Powered by Streamlit & Plotly.")
