@@ -2,14 +2,12 @@ name: Run Stock Dashboard Engine
 
 on:
   schedule:
-    # 2:30 PM UTC = 8:00 PM IST (Everyday)
-    - cron: "30 14 * * *"
+    - cron: "30 14 * * *" # 8:00 PM IST
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     permissions:
       contents: write
 
@@ -27,22 +25,17 @@ jobs:
       - name: Install Dependencies
         run: pip install -r requirements.txt
 
-      # --- STEP 1: RUN ENGINE (Overwrites existing files) ---
       - name: Run Dashboard Engine
         run: python engine.py
 
-      # --- STEP 2: COMMIT & SYNC ---
       - name: Commit and Push
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
           
-          # Pull first to sync any changes you made manually
-          git pull origin main --rebase
+          # Pull first to sync with any manual GitHub changes
+          git pull origin main --rebase --autostash
           
-          # Stage the updated Excel files
           git add dashboards/*.xlsx
-          
-          # Commit and Push
-          git commit -m "Auto dashboard update (Overwritten)" || echo "No changes to commit"
+          git commit -m "Auto-update dashboard data" || echo "No changes to commit"
           git push origin main
