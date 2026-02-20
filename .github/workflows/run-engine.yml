@@ -2,7 +2,8 @@ name: Run Stock Dashboard Engine
 
 on:
   schedule:
-    - cron: "0 0 * * *"
+    # 2:30 PM UTC = 8:00 PM IST (Everyday)
+    - cron: "30 14 * * *"
   workflow_dispatch:
 
 jobs:
@@ -16,7 +17,6 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          # This ensures we fetch the history to avoid push errors
           fetch-depth: 0
 
       - name: Setup Python
@@ -27,28 +27,23 @@ jobs:
       - name: Install Dependencies
         run: pip install -r requirements.txt
 
-      # --- STEP 1: CLEAN OLD FILES ---
-      # This deletes all .xlsx files in the folder before the new ones are made
       - name: Clean Old Files
         run: rm -rf dashboards/*.xlsx
 
-      # --- STEP 2: RUN ENGINE ---
       - name: Run Dashboard Engine
         run: python engine.py
 
-      # --- STEP 3: COMMIT & SYNC ---
       - name: Commit and Push
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
           
-          # Update the robot's local memory with changes from the website
-          # This prevents the "rejected push" error
+          # Pull latest changes to avoid conflicts
           git pull origin main --rebase
           
-          # Add all changes, including deletions of old files
+          # Add all changes in the dashboards folder
           git add -A dashboards/*.xlsx
           
-          # Final save and send to GitHub
+          # Commit and Push
           git commit -m "Auto dashboard update (Cleaned & Refreshed)" || echo "No changes to commit"
           git push origin main
