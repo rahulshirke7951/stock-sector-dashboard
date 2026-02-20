@@ -21,12 +21,22 @@ jobs:
 
       - run: pip install -r requirements.txt
 
+      # --- STEP 1: CLEANING ---
+      # This deletes all .xlsx files in the folder before the new ones are made
+      - name: Clean Old Files
+        run: rm -rf dashboards/*.xlsx
+
+      # --- STEP 2: RUN ENGINE ---
       - run: python engine.py
 
+      # --- STEP 3: COMMIT & SYNC ---
       - name: Commit dashboard
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
-          git add dashboards/*.xlsx || echo "No files"
-          git commit -m "Auto dashboard update" || echo "No changes"
+          
+          # The -A flag is the secret: it tells Git to track the DELETIONS too
+          git add -A dashboards/*.xlsx
+          
+          git commit -m "Auto dashboard update (Cleaned & Refreshed)" || echo "No changes"
           git push
