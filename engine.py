@@ -11,8 +11,7 @@ with open("config.json") as f:
 
 sectors = config["sectors"]
 output_folder = config["output"]["folder"]
-from_date = config.get("from_date")
-to_date = config.get("to_date")
+from_date = config.get("from_date", "2023-01-01")
 
 os.makedirs(output_folder, exist_ok=True)
 
@@ -29,42 +28,41 @@ def apply_heatmap(ws):
     )
     ws.conditional_formatting.add("B2:Z100", rule)
 
+# ---------- Processing ----------
 for sector, stocks in sectors.items():
     try:
         print(f"🔄 Processing {sector}...")
-        filename = f"{output_folder}/{sector}.xlsx"
+        # STATIC FILENAME for Overwrite Strategy
+        filename = os.path.join(output_folder, f"{sector}.xlsx")
 
-        raw_data = yf.download(stocks, start=from_date, end=to_date, auto_adjust=True)
-        # Fix for yfinance structure
-        if 'Close' in raw_data.columns:
-            data = raw_data['Close']
-        else:
-            data = raw_data
-            
+        # Download Data
+        raw_data = yf.download(stocks, start=from_date, auto_adjust=True)
+        data = raw_data['Close'] if 'Close' in raw_data.columns else raw_data
         data = data.ffill()
 
         with pd.ExcelWriter(filename, engine="openpyxl") as writer:
             data.to_excel(writer, sheet_name="prices")
 
-            # Monthly Returns
+            # 1. Monthly Returns (Newest to Oldest)
             monthly = data.resample("ME").last().pct_change() * 100
             monthly = monthly.sort_index(ascending=False)
             monthly.index = monthly.index.strftime("%Y-%b")
             monthly.to_excel(writer, sheet_name="monthly_returns")
 
-            # Quarterly Returns
+            # 2. Quarterly Returns (Newest to Oldest)
             quarterly = data.resample("QE").last().pct_change() * 100
             quarterly = quarterly.sort_index(ascending=False)
             quarterly.index = quarterly.index.to_period("Q").astype(str)
             quarterly.to_excel(writer, sheet_name="quarterly_returns")
 
-        # Formatting
+        # Apply Formatting
         wb = load_workbook(filename)
         for ws in wb.worksheets:
             auto_width(ws)
             if ws.title in ["monthly_returns", "quarterly_returns"]:
                 apply_heatmap(ws)
         wb.save(filename)
+        print(f"✅ Success: {filename}")
 
     except Exception as e:
         print(f"🚨 Error in {sector}: {e}")
