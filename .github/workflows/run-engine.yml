@@ -13,30 +13,42 @@ jobs:
       contents: write
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          # This ensures we fetch the history to avoid push errors
+          fetch-depth: 0
 
-      - uses: actions/setup-python@v5
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - run: pip install -r requirements.txt
+      - name: Install Dependencies
+        run: pip install -r requirements.txt
 
-      # --- STEP 1: CLEANING ---
+      # --- STEP 1: CLEAN OLD FILES ---
       # This deletes all .xlsx files in the folder before the new ones are made
       - name: Clean Old Files
         run: rm -rf dashboards/*.xlsx
 
       # --- STEP 2: RUN ENGINE ---
-      - run: python engine.py
+      - name: Run Dashboard Engine
+        run: python engine.py
 
       # --- STEP 3: COMMIT & SYNC ---
-      - name: Commit dashboard
+      - name: Commit and Push
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
           
-          # The -A flag is the secret: it tells Git to track the DELETIONS too
+          # Update the robot's local memory with changes from the website
+          # This prevents the "rejected push" error
+          git pull origin main --rebase
+          
+          # Add all changes, including deletions of old files
           git add -A dashboards/*.xlsx
           
-          git commit -m "Auto dashboard update (Cleaned & Refreshed)" || echo "No changes"
-          git push
+          # Final save and send to GitHub
+          git commit -m "Auto dashboard update (Cleaned & Refreshed)" || echo "No changes to commit"
+          git push origin main
