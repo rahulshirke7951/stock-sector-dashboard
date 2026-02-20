@@ -12,9 +12,96 @@
   },
 
   "sectors": {
-    "Banking": ["HDFCBANK.NS", "ICICIBANK.NS", "SBIN.NS"],
-    "Aviation": ["INDIGO.NS"],
-    "Consumer": ["HINDUNILVR.NS", "ITC.NS"]
+    "Banking": [
+      "HDFCBANK.NS",
+      "ICICIBANK.NS",
+      "SBIN.NS",
+      "AXISBANK.NS",
+      "KOTAKBANK.NS",
+      "BAJFINANCE.NS",
+      "BAJAJFINSV.NS",
+      "INDUSINDBK.NS",
+      "PFC.NS",
+      "SHRIRAMFIN.NS"
+    ],
+
+    "IT": [
+      "TCS.NS",
+      "INFY.NS",
+      "HCLTECH.NS",
+      "WIPRO.NS",
+      "TECHM.NS",
+      "LTIM.NS",
+      "PERSISTENT.NS",
+      "COFORGE.NS",
+      "MPHASIS.NS",
+      "OFSS.NS"
+    ],
+
+    "Energy": [
+      "RELIANCE.NS",
+      "ONGC.NS",
+      "NTPC.NS",
+      "POWERGRID.NS",
+      "COALINDIA.NS",
+      "ADANIGREEN.NS",
+      "ATGL.NS",
+      "ADANIENSOL.NS",
+      "BPCL.NS",
+      "IOC.NS"
+    ],
+
+    "Automobile": [
+      "MARUTI.NS",
+      "M&M.NS",
+      "TATAMOTORS.NS",
+      "BAJAJ-AUTO.NS",
+      "EICHERMOT.NS",
+      "HEROMOTOCO.NS",
+      "TVSMOTOR.NS",
+      "ASHOKLEY.NS",
+      "BOSCHLTD.NS",
+      "MOTHERSON.NS"
+    ],
+
+    "FMCG": [
+      "HINDUNILVR.NS",
+      "ITC.NS",
+      "NESTLEIND.NS",
+      "BRITANNIA.NS",
+      "TATACONSUM.NS",
+      "GODREJCP.NS",
+      "DABUR.NS",
+      "MARICO.NS",
+      "COLPAL.NS",
+      "UNITDSPR.NS"
+    ],
+
+    "Pharma": [
+      "SUNPHARMA.NS",
+      "DRREDDY.NS",
+      "CIPLA.NS",
+      "DIVISLAB.NS",
+      "APOLLOHOSP.NS",
+      "TORNTPHARM.NS",
+      "LUPIN.NS",
+      "AUROPHARMA.NS",
+      "ZYDUSLIFE.NS",
+      "BIOCON.NS"
+    ],
+
+    "Infrastructure": [
+      "LT.NS",
+      "ULTRACEMCO.NS",
+      "GRASIM.NS",
+      "ADANIPORTS.NS",
+      "SIEMENS.NS",
+      "ABB.NS",
+      "JSWINFRA.NS",
+      "DLF.NS",
+      "ACC.NS",
+      "AMBUJACEM.NS"
+    ]
   },
 
   "output": {
