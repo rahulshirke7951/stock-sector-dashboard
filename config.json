@@ -10,6 +10,18 @@
     "sector_growth_since_start": true
   },
   "sectors": {
+              "indices": {
+                "Nifty 50": "^NSEI",
+                "Nifty Next 50": "^NSMIDCP",
+                "Nifty 100": "^CNX100",
+                "Nifty 200": "^CNX200",
+                "Nifty Midcap 50": "^NSEMDCP50",
+                "Nifty Midcap 100": "^CRSMID",
+                "Nifty Midcap 150": "NIFTYMIDCAP150.NS",
+                "Nifty500 LargeMidSmall Equal-Cap Weighted": "^CRSLDX",
+                "Nifty500 Multicap 50:25:25": "MULTICAP.NS",
+                "Nifty 500": "^CRSLDX"
+              },
     "Banking": ["HDFCBANK.NS", "ICICIBANK.NS", "SBIN.NS", "AXISBANK.NS", "KOTAKBANK.NS", "BAJFINANCE.NS", "BAJAJFINSV.NS", "INDUSINDBK.NS", "PFC.NS", "SHRIRAMFIN.NS"],
     "IT": ["TCS.NS", "INFY.NS", "HCLTECH.NS", "WIPRO.NS", "TECHM.NS", "LTIM.NS", "PERSISTENT.NS", "COFORGE.NS", "MPHASIS.NS", "OFSS.NS"],
     "Energy": ["RELIANCE.NS", "ONGC.NS", "NTPC.NS", "POWERGRID.NS", "COALINDIA.NS", "ADANIGREEN.NS", "ATGL.NS", "ADANIENSOL.NS", "BPCL.NS", "IOC.NS"],
