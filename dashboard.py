@@ -4,117 +4,129 @@ import os
 import plotly.express as px
 from io import BytesIO
 
-# ---------- Page Config ----------
-st.set_page_config(page_title="Pro Sector Analytics", layout="wide", page_icon="📈")
+# Page Configuration
+st.set_page_config(page_title="Stock Watchlist", layout="wide")
 
+# UI DESIGN: Professional Header Styling & Table Centering
 st.markdown("""
     <style>
-    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; border: 1px solid #e6e9ef; box-shadow: 2px 2px 5px rgba(0,0,0,0.05); }
+    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; border: 1px solid #e6e9ef; border-top: 4px solid #002b5b; }
+    th { background-color: #002b5b !important; color: white !important; text-align: center !important; }
+    td { text-align: center !important; }
+    .stDataFrame { border: 1px solid #e6e9ef; border-radius: 10px; }
     </style>
     """, unsafe_allow_html=True)
 
-# ---------- Data Loading ----------
+# Data Path Configuration
 folder = "dashboards"
 if not os.path.exists(folder):
-    st.error(f"📂 Folder '{folder}' not found. Please run engine.py first.")
+    st.error(f"📂 Folder '{folder}' not found. Run engine.py first.")
     st.stop()
 
 files = sorted([f for f in os.listdir(folder) if f.endswith(".xlsx")])
 
-if not files:
-    st.error("📂 No Excel files found in the dashboard folder.")
-    st.stop()
-
-# ---------- Sidebar Selection ----------
+# SIDEBAR: Control Panel
 with st.sidebar:
-    st.title("🎯 Control Panel")
-    selected_file = st.selectbox("Select Sector", files)
+    st.title("📂 Watchlist Controls")
+    selected_file = st.selectbox("Select List", files)
     file_path = os.path.join(folder, selected_file)
-
-    # Load Prices once for the filter
+    
+    # Load raw prices to build dynamic filters
     prices_df = pd.read_excel(file_path, sheet_name="prices", index_col=0)
     prices_df.index = pd.to_datetime(prices_df.index)
     
+    # FEATURE: Dynamic Stock Multi-select
+    all_stocks = sorted(prices_df.columns.tolist())
+    selected_stocks = st.multiselect("Filter Stocks", all_stocks, default=all_stocks)
+    
+    # FEATURE: Dynamic Year Selection
     available_years = sorted(prices_df.index.year.unique(), reverse=True)
-    selected_years = st.multiselect("Select Analysis Years", available_years, default=available_years)
+    selected_years = st.multiselect("Years", available_years, default=available_years[:2])
 
-# ---------- Filter & CAGR Logic ----------
-filtered_prices = prices_df[prices_df.index.year.isin(selected_years)]
+# LOGIC: Recalculate everything based on Sidebar selection
+filtered_prices = prices_df[prices_df.index.year.isin(selected_years)][selected_stocks]
 
-if filtered_prices.empty:
-    st.warning("Please select at least one year with data.")
+if filtered_prices.empty or not selected_stocks:
+    st.warning("⚠️ Select stocks and years to display data.")
     st.stop()
 
-days_elapsed = (filtered_prices.index[-1] - filtered_prices.index[0]).days
-years_elapsed = days_elapsed / 365.25
+# Dynamic CAGR and Absolute Return Math
+days_diff = (filtered_prices.index[-1] - filtered_prices.index[0]).days
+years_val = max(days_diff / 365.25, 0.1) # Prevent division by zero
 
-summary_stats = []
-for ticker in filtered_prices.columns:
-    col_data = filtered_prices[ticker].dropna()
-    if len(col_data) >= 2:
-        start_val, end_val = col_data.iloc[0], col_data.iloc[-1]
-        abs_return = ((end_val / start_val) - 1) * 100
-        cagr = (((end_val / start_val) ** (1 / years_elapsed if years_elapsed > 0 else 1)) - 1) * 100
-        summary_stats.append({"Ticker": ticker, "Return %": abs_return, "CAGR %": cagr, "Latest": end_val})
+summary_data = []
+for s in selected_stocks:
+    stock_series = filtered_prices[s].dropna()
+    if len(stock_series) >= 2:
+        start_p, end_p = stock_series.iloc[0], stock_series.iloc[-1]
+        abs_ret = ((end_p / start_p) - 1) * 100
+        cagr_val = (((end_p / start_p) ** (1 / years_val)) - 1) * 100
+        summary_data.append({"Ticker": s, "Return %": abs_ret, "CAGR %": cagr_val, "Latest": end_p})
 
-df_summary = pd.DataFrame(summary_stats).sort_values("Return %", ascending=False)
+df_sum = pd.DataFrame(summary_data).sort_values("Return %", ascending=False)
 
-# ---------- UI Sections ----------
-st.title(f"📊 {selected_file.replace('.xlsx', '')} Terminal")
-st.info(f"📅 Period: {filtered_prices.index.min().date()} to {filtered_prices.index.max().date()}")
+# UI: HEADER & METRICS
+clean_name = selected_file.replace(".xlsx", "")
+st.title(f"📈 {clean_name}")
+st.caption(f"📅 Active Period: {filtered_prices.index.min().date()} to {filtered_prices.index.max().date()}")
 
-m1, m2, m3 = st.columns(3)
-m1.metric("🏆 Top Performer", df_summary.iloc[0]['Ticker'], f"{df_summary.iloc[0]['Return %']:.1f}%")
-m2.metric("📈 Avg Return", "Sector", f"{df_summary['Return %'].mean():.1f}%")
-m3.metric("📅 Avg CAGR", "Annualized", f"{df_summary['CAGR %'].mean():.1f}%")
+m1, m2 = st.columns(2)
+m1.metric("🏆 Top Performer", df_sum.iloc[0]['Ticker'], f"{df_sum.iloc[0]['Return %']:.2f}%")
+m2.metric("📅 Selection CAGR", "Avg Annualized", f"{df_sum['CAGR %'].mean():.2f}%")
 
 st.divider()
 
-tab_viz, tab_summary, tab_month, tab_quart = st.tabs([
-    "📈 Consistency & Visuals", "📋 Performance Data", "📅 Monthly Heatmap", "🏢 Quarterly Heatmap"
-])
+# TABS: The 4 Analytical Views
+t1, t2, t3, t4 = st.tabs(["📊 Visuals", "📋 Stats Table", "📅 Monthly", "🏢 Quarterly"])
 
-with tab_viz:
+with t1:
     c1, c2 = st.columns([1, 1.5])
     with c1:
-        st.subheader("Total Return Ranking")
-        st.plotly_chart(px.bar(df_summary, x="Return %", y="Ticker", orientation='h', color="Return %", color_continuous_scale='RdYlGn', template="plotly_white"), use_container_width=True)
+        st.subheader("Return Ranking")
+        st.plotly_chart(px.bar(df_sum, x="Return %", y="Ticker", orientation='h', color="Return %", 
+                               color_continuous_scale='RdYlGn', template="simple_white"), use_container_width=True)
     with c2:
         st.subheader("Price Trajectory")
-        st.plotly_chart(px.line(filtered_prices, template="plotly_white"), use_container_width=True)
-
-    st.divider()
-    st.subheader("🕵️ Consistency Check: 1-Year Rolling Returns")
-    st.caption("Stable lines above 0% indicate 'Consistent Compounders'. Window: 252 trading days.")
+        st.plotly_chart(px.line(filtered_prices, template="simple_white"), use_container_width=True)
     
+    st.divider()
+    st.subheader("🕵️ Rolling Consistency Check")
     try:
-        # Load FULL rolling data first
-        rolling_df = pd.read_excel(file_path, sheet_name="rolling_12m", index_col=0)
-        rolling_df.index = pd.to_datetime(rolling_df.index)
-        
-        # Filter ONLY for display - this prevents the "Insufficient Data" error
-        display_rolling = rolling_df[rolling_df.index.year.isin(selected_years)]
-        
-        if not display_rolling.empty:
-            fig_roll = px.line(display_rolling, template="plotly_white", labels={"value": "Return %"})
-            fig_roll.add_hline(y=0, line_dash="dash", line_color="red", annotation_text="0% Baseline")
-            st.plotly_chart(fig_roll, use_container_width=True)
-        else:
-            st.warning("⚠️ Rolling data requires 1 year of history. If you only select 2024, ensure you have 2023 data in your file.")
+        # Load the pre-calculated rolling data
+        roll = pd.read_excel(file_path, sheet_name="rolling_12m", index_col=0)
+        roll.index = pd.to_datetime(roll.index)
+        # Filter display for selected stocks/years without breaking the 1Y math
+        display_roll = roll[roll.index.year.isin(selected_years)][selected_stocks]
+        fig_roll = px.line(display_roll, template="simple_white", labels={"value": "Rolling %"})
+        fig_roll.add_hline(y=0, line_dash="dash", line_color="red")
+        st.plotly_chart(fig_roll, use_container_width=True)
     except:
-        st.info("Rolling data sheet not found. Run engine.py again.")
+        st.info("Rolling data sheet syncing...")
 
-with tab_summary:
-    st.dataframe(df_summary.style.background_gradient(subset=["Return %", "CAGR %"], cmap="RdYlGn").format("{:.2f}%", subset=["Return %", "CAGR %"]), use_container_width=True, hide_index=True)
-    excel_buffer = BytesIO()
-    with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
-        df_summary.to_excel(writer, index=False)
-    st.download_button("📥 Download Report", excel_buffer.getvalue(), f"{selected_file}_report.xlsx")
+with t2:
+    # FEATURE: Styled Table with Centered Headers & 2-Decimal Precision
+    st.dataframe(df_sum.style.background_gradient(subset=["Return %", "CAGR %"], cmap="RdYlGn")
+                 .format({"Return %": "{:.2f}%", "CAGR %": "{:.2f}%", "Latest": "{:.2f}"}), 
+                 use_container_width=True, hide_index=True)
+    
+    # Download Report for the current view
+    buf = BytesIO()
+    with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
+        df_sum.to_excel(writer, index=False)
+    st.download_button("📥 Export CSV/Excel Report", buf.getvalue(), f"{clean_name}_report.xlsx")
 
-with tab_month:
+with t3:
+    st.subheader("Monthly Returns (%)")
     m_data = pd.read_excel(file_path, sheet_name="monthly_returns", index_col=0)
-    st.dataframe(m_data[m_data.index.str[:4].astype(int).isin(selected_years)].style.background_gradient(cmap='RdYlGn', axis=None).format("{:.2f}%"), use_container_width=True)
+    # Filter Heatmap Columns (Stocks) and Rows (Selected Years)
+    f_m = m_data[selected_stocks]
+    f_m = f_m[pd.to_datetime(f_m.index).year.isin(selected_years)]
+    st.dataframe(f_m.style.background_gradient(cmap='RdYlGn', axis=None).format("{:.2f}%"), use_container_width=True)
 
-with tab_quart:
+with t4:
+    st.subheader("Quarterly Returns (%)")
     q_data = pd.read_excel(file_path, sheet_name="quarterly_returns", index_col=0)
-    st.dataframe(q_data[q_data.index.str[:4].astype(int).isin(selected_years)].style.background_gradient(cmap='RdYlGn', axis=None).format("{:.2f}%"), use_container_width=True)
+    # Filter Heatmap Columns (Stocks) and Rows (Selected Years)
+    f_q = q_data[selected_stocks]
+    f_q = f_q[f_q.index.str[:4].astype(int).isin(selected_years)]
+    st.dataframe(f_q.style.background_gradient(cmap='RdYlGn', axis=None).format("{:.2f}%"), use_container_width=True)
