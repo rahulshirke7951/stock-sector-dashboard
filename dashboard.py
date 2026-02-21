@@ -5,7 +5,7 @@ import plotly.express as px
 
 st.set_page_config(page_title="Stock Watchlist", layout="wide")
 
-# --- UI CSS (Kept from earlier premium version) ---
+# --- UI CSS ---
 st.markdown("""<style>
     th { background-color: #002b5b !important; color: white !important; text-align: center !important; }
     td { text-align: center !important; }
@@ -14,6 +14,10 @@ st.markdown("""<style>
 
 folder = "dashboards"
 files = sorted([f for f in os.listdir(folder) if f.endswith(".xlsx")])
+
+if not files:
+    st.error("No Excel files found in the 'dashboards' folder. Please run engine.py.")
+    st.stop()
 
 with st.sidebar:
     st.title("📂 Watchlist Controls")
@@ -24,13 +28,13 @@ with st.sidebar:
     prices_df = pd.read_excel(file_path, sheet_name="prices", index_col=0)
     prices_df.index = pd.to_datetime(prices_df.index)
     
-    # Load Auto-Fetched names
+    # Load Auto-Fetched names from the metadata sheet
     try:
         meta_df = pd.read_excel(file_path, sheet_name="metadata", index_col=0)
-        name_map = meta_df.to_dict()[meta_df.columns[0]]
-        # Update column names to Clean Names
+        # Convert metadata to a dictionary for renaming
+        name_map = meta_df.iloc[:, 0].to_dict()
         prices_df.rename(columns=name_map, inplace=True)
-    except:
+    except Exception as e:
         name_map = {s: s for s in prices_df.columns}
 
     all_stocks = sorted(prices_df.columns.tolist())
@@ -49,7 +53,7 @@ if filtered_prices.empty or not selected_stocks:
     st.warning("⚠️ Select stocks and years.")
     st.stop()
 
-# Performance Stats
+# Performance Stats (CAGR & Returns)
 days_diff = (filtered_prices.index[-1] - filtered_prices.index[0]).days
 years_val = max(days_diff / 365.25, 0.1)
 
@@ -88,19 +92,30 @@ with t2:
                  .format({"Return %": "{:.2f}%", "CAGR %": "{:.2f}%", "Latest": "₹{:.2f}"}), 
                  use_container_width=True, hide_index=True)
 
-# Monthly/Quarterly Logic (Rename these as well)
 with t3:
-    m_data = pd.read_excel(file_path, sheet_name="monthly_returns", index_col=0)
-    m_data.rename(columns=name_map, inplace=True) # Rename here
-    m_data.index = pd.to_datetime(m_data.index)
-    f_m = m_data[selected_stocks][m_data.index.year.isin(selected_years)]
-    f_m.index = f_m.index.strftime('%Y-%b')
-    st.dataframe(f_m.style.background_gradient(cmap='RdYlGn', axis=None).format("{:.2f}%"), use_container_width=True)
+    st.subheader("Monthly Returns (%)")
+    try:
+        m_data = pd.read_excel(file_path, sheet_name="monthly_returns", index_col=0)
+        m_data.rename(columns=name_map, inplace=True)
+        m_data.index = pd.to_datetime(m_data.index)
+        # Fixed logic: filter columns first, THEN filter index by year
+        f_m = m_data[selected_stocks]
+        f_m = f_m[f_m.index.year.isin(selected_years)]
+        f_m.index = f_m.index.strftime('%Y-%b')
+        st.dataframe(f_m.style.background_gradient(cmap='RdYlGn', axis=None).format("{:.2f}%"), use_container_width=True)
+    except:
+        st.info("ℹ️ Monthly sheet syncing...")
 
 with t4:
-    q_data = pd.read_excel(file_path, sheet_name="quarterly_returns", index_col=0)
-    q_data.rename(columns=name_map, inplace=True) # Rename here
-    q_data.index = pd.to_datetime([str(x).replace('Q', '-') for x in q_data.index])
-    f_q = q_data[selected_stocks][f_q.index.year.isin(selected_years)]
-    f_q.index = f_q.index.to_period('Q').astype(str)
-    st.dataframe(f_q.style.background_gradient(cmap='RdYlGn', axis=None).format("{:.2f}%"), use_container_width=True)
+    st.subheader("Quarterly Returns (%)")
+    try:
+        q_data = pd.read_excel(file_path, sheet_name="quarterly_returns", index_col=0)
+        q_data.rename(columns=name_map, inplace=True)
+        q_data.index = pd.to_datetime([str(x).replace('Q', '-') for x in q_data.index])
+        # FIX: Defined f_q before using it for indexing
+        f_q = q_data[selected_stocks]
+        f_q = f_q[f_q.index.year.isin(selected_years)]
+        f_q.index = f_q.index.to_period('Q').astype(str)
+        st.dataframe(f_q.style.background_gradient(cmap='RdYlGn', axis=None).format("{:.2f}%"), use_container_width=True)
+    except:
+        st.info("ℹ️ Quarterly sheet syncing...")
