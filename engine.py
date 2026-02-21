@@ -1,95 +1,57 @@
-import json
-import yfinance as yf
-import pandas as pd
-import os
+import json, yfinance as yf, pandas as pd, os
 from openpyxl import load_workbook
 from openpyxl.formatting.rule import ColorScaleRule
 
-# ---------- Setup & Configuration ----------
-def load_config():
-    with open("config.json") as f:
-        return json.load(f)
-
-def auto_width(ws):
-    for col in ws.columns:
-        max_length = 0
-        column = col[0].column_letter
-        for cell in col:
-            try:
-                if len(str(cell.value)) > max_length:
-                    max_length = len(str(cell.value))
-            except:
-                pass
-        ws.column_dimensions[column].width = max_length + 2
-
-def apply_heatmap(ws):
-    rule = ColorScaleRule(
-        start_type="num", start_value=-15, start_color="F8696B", 
-        mid_type="num", mid_value=0, mid_color="FFFFFF",         
-        end_type="num", end_value=15, end_color="63BE7B"         
-    )
-    ws.conditional_formatting.add("B2:Z100", rule)
-
-# ---------- Main Processing Loop ----------
 def main():
-    config = load_config()
+    # Load configuration dynamically
+    with open("config.json") as f:
+        config = json.load(f)
+    
     sectors = config["sectors"]
-    output_folder = config["output"]["folder"]
-    from_date = config.get("from_date", "2023-01-01")
+    folder = config["output"]["folder"]
+    
+    # Logic: Always fetch data from 2022 to provide a 1-year buffer 
+    # for 2023+ rolling calculations
+    from_date = "2022-01-01" 
+    os.makedirs(folder, exist_ok=True)
 
-    os.makedirs(output_folder, exist_ok=True)
-
-    for sector, stocks in sectors.items():
+    for name, stocks in sectors.items():
         try:
-            print(f"🔄 Processing Sector: {sector}...")
-            filename = os.path.join(output_folder, f"{sector}.xlsx")
-
-            # 1. Download Data
-            raw_data = yf.download(stocks, start=from_date, auto_adjust=True)
+            print(f"🔄 Processing: {name}")
+            path = os.path.join(folder, f"{name}.xlsx")
             
-            if isinstance(raw_data.columns, pd.MultiIndex):
-                data = raw_data['Close']
-            else:
-                data = raw_data['Close'].to_frame(name=stocks[0])
+            # Download based on the JSON stock list
+            raw = yf.download(stocks, start=from_date, auto_adjust=True)
             
+            # Handle both single-ticker and multi-ticker dataframes
+            data = raw['Close'] if isinstance(raw.columns, pd.MultiIndex) else raw['Close'].to_frame(name=stocks[0])
             data = data.ffill()
 
-            # 2. Excel Generation
-            with pd.ExcelWriter(filename, engine="openpyxl") as writer:
+            with pd.ExcelWriter(path, engine="openpyxl") as writer:
+                # Store prices for the dashboard's internal calculations
                 data.to_excel(writer, sheet_name="prices")
-
-                # Monthly Returns
-                monthly = (data.resample("ME").last().pct_change() * 100).sort_index(ascending=False)
-                monthly.index = monthly.index.strftime("%Y-%b")
-                monthly.to_excel(writer, sheet_name="monthly_returns")
-
-                # Quarterly Returns
-                quarterly = (data.resample("QE").last().pct_change() * 100).sort_index(ascending=False)
-                quarterly.index = quarterly.index.to_period("Q").astype(str)
-                quarterly.to_excel(writer, sheet_name="quarterly_returns")
-
-                # Stock Rolling Returns (1-Year Window)
-                # This requires 'from_date' to be 1 year before your analysis start
-                rolling_1y = data.pct_change(periods=252).dropna() * 100
-                rolling_1y.to_excel(writer, sheet_name="rolling_12m")
-
-            # 3. Apply Excel Styling
-            wb = load_workbook(filename)
-            for sheet_name in ["monthly_returns", "quarterly_returns"]:
-                if sheet_name in wb.sheetnames:
-                    ws = wb[sheet_name]
-                    auto_width(ws)
-                    apply_heatmap(ws)
+                
+                # Pre-calculate Returns for Heatmaps
+                (data.resample("ME").last().pct_change() * 100).sort_index(ascending=False).to_excel(writer, sheet_name="monthly_returns")
+                (data.resample("QE").last().pct_change() * 100).sort_index(ascending=False).to_excel(writer, sheet_name="quarterly_returns")
+                
+                # Pre-calculate 1-Year (252 day) Rolling Returns
+                (data.pct_change(periods=252).dropna() * 100).to_excel(writer, sheet_name="rolling_12m")
             
-            for sheet_name in ["prices", "rolling_12m"]:
-                if sheet_name in wb.sheetnames:
-                    auto_width(wb[sheet_name])
+            # Apply Excel conditional formatting for color scales
+            wb = load_workbook(path)
+            rule = ColorScaleRule(start_type="num", start_value=-15, start_color="F8696B", 
+                                  mid_type="num", mid_value=0, mid_color="FFFFFF", 
+                                  end_type="num", end_value=15, end_color="63BE7B")
             
-            wb.save(filename)
-            print(f"✅ Saved: {filename}")
-
+            for s in ["monthly_returns", "quarterly_returns"]:
+                if s in wb.sheetnames:
+                    wb[s].conditional_formatting.add("B2:Z100", rule)
+            wb.save(path)
+            print(f"✅ Saved: {name}.xlsx")
+            
         except Exception as e:
-            print(f"🚨 Error processing {sector}: {str(e)}")
+            print(f"🚨 Error in {name}: {e}")
 
 if __name__ == "__main__":
     main()
