@@ -23,7 +23,6 @@ def auto_width(ws):
         ws.column_dimensions[column].width = max_length + 2
 
 def apply_heatmap(ws):
-    # Standard Heatmap: Red (-15%) to White (0%) to Green (+15%)
     rule = ColorScaleRule(
         start_type="num", start_value=-15, start_color="F8696B", 
         mid_type="num", mid_value=0, mid_color="FFFFFF",         
@@ -43,13 +42,11 @@ def main():
     for sector, stocks in sectors.items():
         try:
             print(f"🔄 Processing Sector: {sector}...")
-            # Static filename for GitHub Overwrite Strategy
             filename = os.path.join(output_folder, f"{sector}.xlsx")
 
             # 1. Download Data
             raw_data = yf.download(stocks, start=from_date, auto_adjust=True)
             
-            # Handle Single vs Multi-ticker dataframes
             if isinstance(raw_data.columns, pd.MultiIndex):
                 data = raw_data['Close']
             else:
@@ -59,21 +56,20 @@ def main():
 
             # 2. Excel Generation
             with pd.ExcelWriter(filename, engine="openpyxl") as writer:
-                # Sheet 1: Raw Prices
                 data.to_excel(writer, sheet_name="prices")
 
-                # Sheet 2: Monthly Returns (Heatmap Style)
+                # Monthly Returns
                 monthly = (data.resample("ME").last().pct_change() * 100).sort_index(ascending=False)
                 monthly.index = monthly.index.strftime("%Y-%b")
                 monthly.to_excel(writer, sheet_name="monthly_returns")
 
-                # Sheet 3: Quarterly Returns
+                # Quarterly Returns
                 quarterly = (data.resample("QE").last().pct_change() * 100).sort_index(ascending=False)
                 quarterly.index = quarterly.index.to_period("Q").astype(str)
                 quarterly.to_excel(writer, sheet_name="quarterly_returns")
 
-                # Sheet 4: Stock Rolling Returns (1-Year Consistency Check)
-                # 252 trading days = roughly 1 year
+                # Stock Rolling Returns (1-Year Window)
+                # This requires 'from_date' to be 1 year before your analysis start
                 rolling_1y = data.pct_change(periods=252).dropna() * 100
                 rolling_1y.to_excel(writer, sheet_name="rolling_12m")
 
@@ -85,7 +81,6 @@ def main():
                     auto_width(ws)
                     apply_heatmap(ws)
             
-            # General auto-width for prices and rolling
             for sheet_name in ["prices", "rolling_12m"]:
                 if sheet_name in wb.sheetnames:
                     auto_width(wb[sheet_name])
