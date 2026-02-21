@@ -5,22 +5,25 @@ import os
 from openpyxl import load_workbook
 from openpyxl.formatting.rule import ColorScaleRule
 
-# ---------- Setup ----------
-with open("config.json") as f:
-    config = json.load(f)
-
-sectors = config["sectors"]
-output_folder = config["output"]["folder"]
-from_date = config.get("from_date", "2023-01-01")
-
-os.makedirs(output_folder, exist_ok=True)
+# ---------- Setup & Configuration ----------
+def load_config():
+    with open("config.json") as f:
+        return json.load(f)
 
 def auto_width(ws):
     for col in ws.columns:
-        max_length = max(len(str(cell.value)) if cell.value else 0 for cell in col)
-        ws.column_dimensions[col[0].column_letter].width = max_length + 2
+        max_length = 0
+        column = col[0].column_letter
+        for cell in col:
+            try:
+                if len(str(cell.value)) > max_length:
+                    max_length = len(str(cell.value))
+            except:
+                pass
+        ws.column_dimensions[column].width = max_length + 2
 
 def apply_heatmap(ws):
+    # Standard Heatmap: Red (-15%) to White (0%) to Green (+15%)
     rule = ColorScaleRule(
         start_type="num", start_value=-15, start_color="F8696B", 
         mid_type="num", mid_value=0, mid_color="FFFFFF",         
@@ -28,41 +31,70 @@ def apply_heatmap(ws):
     )
     ws.conditional_formatting.add("B2:Z100", rule)
 
-# ---------- Processing ----------
-for sector, stocks in sectors.items():
-    try:
-        print(f"🔄 Processing {sector}...")
-        # STATIC FILENAME for Overwrite Strategy
-        filename = os.path.join(output_folder, f"{sector}.xlsx")
+# ---------- Main Processing Loop ----------
+def main():
+    config = load_config()
+    sectors = config["sectors"]
+    output_folder = config["output"]["folder"]
+    from_date = config.get("from_date", "2023-01-01")
 
-        # Download Data
-        raw_data = yf.download(stocks, start=from_date, auto_adjust=True)
-        data = raw_data['Close'] if 'Close' in raw_data.columns else raw_data
-        data = data.ffill()
+    os.makedirs(output_folder, exist_ok=True)
 
-        with pd.ExcelWriter(filename, engine="openpyxl") as writer:
-            data.to_excel(writer, sheet_name="prices")
+    for sector, stocks in sectors.items():
+        try:
+            print(f"🔄 Processing Sector: {sector}...")
+            # Static filename for GitHub Overwrite Strategy
+            filename = os.path.join(output_folder, f"{sector}.xlsx")
 
-            # 1. Monthly Returns (Newest to Oldest)
-            monthly = data.resample("ME").last().pct_change() * 100
-            monthly = monthly.sort_index(ascending=False)
-            monthly.index = monthly.index.strftime("%Y-%b")
-            monthly.to_excel(writer, sheet_name="monthly_returns")
+            # 1. Download Data
+            raw_data = yf.download(stocks, start=from_date, auto_adjust=True)
+            
+            # Handle Single vs Multi-ticker dataframes
+            if isinstance(raw_data.columns, pd.MultiIndex):
+                data = raw_data['Close']
+            else:
+                data = raw_data['Close'].to_frame(name=stocks[0])
+            
+            data = data.ffill()
 
-            # 2. Quarterly Returns (Newest to Oldest)
-            quarterly = data.resample("QE").last().pct_change() * 100
-            quarterly = quarterly.sort_index(ascending=False)
-            quarterly.index = quarterly.index.to_period("Q").astype(str)
-            quarterly.to_excel(writer, sheet_name="quarterly_returns")
+            # 2. Excel Generation
+            with pd.ExcelWriter(filename, engine="openpyxl") as writer:
+                # Sheet 1: Raw Prices
+                data.to_excel(writer, sheet_name="prices")
 
-        # Apply Formatting
-        wb = load_workbook(filename)
-        for ws in wb.worksheets:
-            auto_width(ws)
-            if ws.title in ["monthly_returns", "quarterly_returns"]:
-                apply_heatmap(ws)
-        wb.save(filename)
-        print(f"✅ Success: {filename}")
+                # Sheet 2: Monthly Returns (Heatmap Style)
+                monthly = (data.resample("ME").last().pct_change() * 100).sort_index(ascending=False)
+                monthly.index = monthly.index.strftime("%Y-%b")
+                monthly.to_excel(writer, sheet_name="monthly_returns")
 
-    except Exception as e:
-        print(f"🚨 Error in {sector}: {e}")
+                # Sheet 3: Quarterly Returns
+                quarterly = (data.resample("QE").last().pct_change() * 100).sort_index(ascending=False)
+                quarterly.index = quarterly.index.to_period("Q").astype(str)
+                quarterly.to_excel(writer, sheet_name="quarterly_returns")
+
+                # Sheet 4: Stock Rolling Returns (1-Year Consistency Check)
+                # 252 trading days = roughly 1 year
+                rolling_1y = data.pct_change(periods=252).dropna() * 100
+                rolling_1y.to_excel(writer, sheet_name="rolling_12m")
+
+            # 3. Apply Excel Styling
+            wb = load_workbook(filename)
+            for sheet_name in ["monthly_returns", "quarterly_returns"]:
+                if sheet_name in wb.sheetnames:
+                    ws = wb[sheet_name]
+                    auto_width(ws)
+                    apply_heatmap(ws)
+            
+            # General auto-width for prices and rolling
+            for sheet_name in ["prices", "rolling_12m"]:
+                if sheet_name in wb.sheetnames:
+                    auto_width(wb[sheet_name])
+            
+            wb.save(filename)
+            print(f"✅ Saved: {filename}")
+
+        except Exception as e:
+            print(f"🚨 Error processing {sector}: {str(e)}")
+
+if __name__ == "__main__":
+    main()
