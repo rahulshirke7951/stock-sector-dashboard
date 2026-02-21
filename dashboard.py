@@ -4,6 +4,7 @@ import os
 import plotly.express as px
 import plotly.graph_objects as go
 from io import BytesIO
+from datetime import datetime
 
 st.set_page_config(page_title="Stock Watchlist", layout="wide", initial_sidebar_state="expanded")
 
@@ -21,7 +22,7 @@ st.markdown("""
         -webkit-background-clip: text; 
         -webkit-text-fill-color: transparent; 
         text-shadow: 0 2px 4px rgba(0,43,91,0.3);
-        text-align: center; margin-bottom: 1rem;
+        text-align: center; margin-bottom: 0.5rem;
     }
     .subtitle { 
         font-family: 'Inter', sans-serif; 
@@ -29,6 +30,19 @@ st.markdown("""
         color: #666; 
         text-align: center; 
         font-size: 1.1em;
+        margin-bottom: 1rem;
+    }
+    .timestamp { 
+        font-family: 'Inter', sans-serif; 
+        font-weight: 500; 
+        color: #002b5b; 
+        text-align: center; 
+        font-size: 0.95em;
+        background: linear-gradient(90deg, #f8f9ff, #e6e9ef); 
+        padding: 8px 16px; 
+        border-radius: 20px; 
+        display: inline-block;
+        border: 1px solid #e6e9ef;
     }
     
     .stMetric { 
@@ -45,9 +59,29 @@ st.markdown("""
         box-shadow: 0 8px 20px rgba(0,43,91,0.2); 
     }
     
-    th { background: linear-gradient(90deg, #002b5b, #004080) !important; color: white !important; text-align: center !important; font-weight: 600; }
-    td { text-align: center !important; transition: background 0.2s; }
-    .stDataFrame { border: 1px solid #e6e9ef; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,43,91,0.1); }
+    /* Table Headers */
+    .dataframe thead tr th {
+        background: linear-gradient(90deg, #002b5b, #004080) !important; 
+        color: white !important; 
+        font-family: 'Inter', sans-serif !important;
+        font-weight: 600 !important; 
+        font-size: 14px !important;
+        text-align: center !important;
+        padding: 12px 8px !important;
+        border-radius: 8px 8px 0 0 !important;
+    }
+    .dataframe tbody td {
+        text-align: center !important; 
+        padding: 10px 8px !important;
+        transition: background 0.2s;
+        font-family: 'Inter', sans-serif !important;
+        font-size: 13px !important;
+    }
+    .stDataFrame { 
+        border: 1px solid #e6e9ef; 
+        border-radius: 12px; 
+        box-shadow: 0 2px 8px rgba(0,43,91,0.1); 
+    }
     
     .sidebar .stContainer { 
         background: linear-gradient(180deg, #f8f9ff 0%, #ffffff 100%); 
@@ -63,9 +97,7 @@ st.markdown("""
         .stPlotlyChart { height: 350px !important; }
         .main-header { font-size: 2.2em; }
         .stMetric { padding: 15px; font-size: 0.95em; }
-    }
-    @media (max-width: 480px) {
-        .stMetric { margin: 5px 0; }
+        .dataframe thead tr th { font-size: 12px !important; padding: 8px 4px !important; }
     }
     
     /* Hide Streamlit extras */
@@ -78,6 +110,16 @@ st.markdown("""
 
 folder = "dashboards"
 files = sorted([f for f in os.listdir(folder) if f.endswith(".xlsx")])
+
+# Get latest date from data for timestamp
+latest_date = None
+if files:
+    try:
+        sample_df = pd.read_excel(os.path.join(folder, files[0]), sheet_name="prices", index_col=0, nrows=1)
+        sample_df.index = pd.to_datetime(sample_df.index)
+        latest_date = sample_df.index.max().strftime('%d %b %Y')
+    except:
+        latest_date = datetime.now().strftime('%d %b %Y')
 
 with st.sidebar:
     st.title("📂 Watchlist Controls")
@@ -132,26 +174,22 @@ for s in selected_stocks:
         cagr = (((col.iloc[-1] / col.iloc[0]) ** (1/years_val)) - 1) * 100
         summary.append({"Ticker": s, "Return %": ret, "CAGR %": cagr, "Latest": col.iloc[-1]})
 
-df_sum = pd.DataFrame(summary).sort_values("Return %", ascending=False)
+df_sum = pd.DataFrame(summary).sort_values("Return %", ascending=False).reset_index(drop=True)  # No empty rows
 avg_cagr = df_sum['CAGR %'].mean()
 avg_return = df_sum['Return %'].mean()
 
-# Enhanced Header & Metrics
+# Enhanced Header & Metrics (Removed useless button, always 3-col responsive)
 header_container = st.container()
 with header_container:
     st.markdown(f'<h1 class="main-header">📈 {selected_file.replace(".xlsx", "")}</h1>', unsafe_allow_html=True)
-    st.markdown('<p class="subtitle">NSE Portfolio Analytics | Updated Feb 2026</p>', unsafe_allow_html=True)
+    st.markdown('<p class="subtitle">Portfolio Analytics</p>', unsafe_allow_html=True)
+    st.markdown(f'<div class="timestamp">📅 Data as of: {latest_date}</div>', unsafe_allow_html=True)
     
-    # Responsive 3-col metrics
-    if st.columns(3)[0].button("📊 View All Metrics", key="metrics"):
-        cols = st.columns(3)
-    else:
-        cols = st.columns([1,1,1])
-    
+    cols = st.columns(3)
     with cols[0]:
         st.metric("🏆 Top Performer", df_sum.iloc[0]['Ticker'], f"{df_sum.iloc[0]['Return %']:.1f}%")
     with cols[1]:
-        st.metric("📈 Avg Return", f"{avg_return:.1f}%", f"{avg_return - 15:.1f}%")  # Sample delta
+        st.metric("📈 Avg Return", f"{avg_return:.1f}%", f"{avg_return - 15:.1f}%")
     with cols[2]:
         st.metric("📅 Portfolio CAGR", f"{avg_cagr:.1f}%", "↑ 2.1%")
 
@@ -214,13 +252,21 @@ with t1:
         st.info(f"ℹ️ Rolling sheet syncing... ({str(e)})")
 
 with t2:
+    # Performance table with gradient coloring
+    df_display = df_sum.copy()
+    df_display["Return %"] = df_display["Return %"] / 100
+    df_display["CAGR %"] = df_display["CAGR %"] / 100
+    styled_df = df_display.style.background_gradient(cmap='RdYlGn', subset=["Return %", "CAGR %"], axis=None).format({
+        "Return %": "{:.2%}", "CAGR %": "{:.2%}", "Latest": "₹{:.2f}"
+    }).set_properties(**{'text-align': 'center'})
+    
     col_config = {
         "Return %": st.column_config.NumberColumn("Return %", format="%.2f%%"),
         "CAGR %": st.column_config.NumberColumn("CAGR %", format="%.2f%%"),
         "Latest": st.column_config.NumberColumn("Latest ₹", format="₹%.2f")
     }
     with st.container(border=True):
-        st.dataframe(df_sum, use_container_width=True, hide_index=True, 
+        st.dataframe(df_display, use_container_width=True, hide_index=True, 
                     column_config=col_config, height=500)
 
 with t3:
@@ -230,9 +276,10 @@ with t3:
         f_m = m_data[selected_stocks]
         f_m = f_m[f_m.index.year.isin(selected_years)]
         f_m.index = f_m.index.strftime('%Y-%b')
+        f_m_display = f_m.reset_index(drop=True)  # Clean index
         with st.container(border=True):
-            st.dataframe(f_m.style.background_gradient(cmap='RdYlGn', axis=None).format("{:.2f}%"), 
-                        use_container_width=True, height=500)
+            styled_m = f_m_display.style.background_gradient(cmap='RdYlGn', axis=None).format("{:.2f}%")
+            st.dataframe(styled_m, use_container_width=True, height=500)
     except:
         st.info("ℹ️ Monthly sheet not ready.")
 
@@ -243,9 +290,10 @@ with t4:
         f_q = q_data[selected_stocks]
         f_q = f_q[f_q.index.year.isin(selected_years)]
         f_q.index = f_q.index.to_period('Q').astype(str)
+        f_q_display = f_q.reset_index(drop=True)
         with st.container(border=True):
-            st.dataframe(f_q.style.background_gradient(cmap='RdYlGn', axis=None).format("{:.2f}%"), 
-                        use_container_width=True, height=500)
+            styled_q = f_q_display.style.background_gradient(cmap='RdYlGn', axis=None).format("{:.2f}%")
+            st.dataframe(styled_q, use_container_width=True, height=500)
     except:
         st.info("ℹ️ Quarterly sheet not ready.")
 
