@@ -7,13 +7,13 @@ def main():
         config = json.load(f)
     
     sectors, folder = config["sectors"], config["output"]["folder"]
-    # 1-year buffer (from 2022) ensures rolling math works for 2023 onwards
+    # 1-year buffer (from 2022) ensures rolling math works for later years
     from_date = "2022-01-01" 
     os.makedirs(folder, exist_ok=True)
 
     for name, stocks in sectors.items():
         try:
-            print(f"🔄 Syncing: {name}")
+            print(f"🔄 Syncing Watchlist: {name}")
             path = os.path.join(folder, f"{name}.xlsx")
             raw = yf.download(stocks, start=from_date, auto_adjust=True)
             data = raw['Close'] if isinstance(raw.columns, pd.MultiIndex) else raw['Close'].to_frame(name=stocks[0])
@@ -21,7 +21,6 @@ def main():
 
             with pd.ExcelWriter(path, engine="openpyxl") as writer:
                 data.to_excel(writer, sheet_name="prices")
-                # Resample and save as strings to prevent dashboard typing errors
                 (data.resample("ME").last().pct_change() * 100).sort_index(ascending=False).to_excel(writer, sheet_name="monthly_returns")
                 (data.resample("QE").last().pct_change() * 100).sort_index(ascending=False).to_excel(writer, sheet_name="quarterly_returns")
                 (data.pct_change(periods=252).dropna() * 100).to_excel(writer, sheet_name="rolling_12m")
