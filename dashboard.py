@@ -116,11 +116,21 @@ with c_inf3:
 
 st.write("") 
 
-# Metrics
+# --- MAIN METRIC TILES (REFINED DESIGN) ---
 m1, m2, m3 = st.columns(3)
-m1.metric("🏆 Top Performer", df_sum.iloc[0]['Ticker'], f"{df_sum.iloc[0]['Return %']:.1f}%")
-m2.metric("📈 Selection Avg Return", f"{df_sum['Return %'].mean():.1f}%")
-m3.metric("📅 Annualized CAGR", f"{df_sum['CAGR %'].mean():.1f}%")
+
+# 1. Top Performer: Big % and Small Stock Name
+top_val = df_sum.iloc[0]['Return %']
+top_name = df_sum.iloc[0]['Ticker']
+m1.metric("🏆 Top Performer", f"{top_val:.1f}%", f"Stock: {top_name}")
+
+# 2. Avg Return: Big % 
+avg_ret = df_sum['Return %'].mean()
+m2.metric("📈 Selection Avg Return", f"{avg_ret:.1f}%", "Overall Portfolio")
+
+# 3. CAGR: Big % 
+avg_cagr = df_sum['CAGR %'].mean()
+m3.metric("📅 Annualized CAGR", f"{avg_cagr:.1f}%", f"Over {years_val:.1f} Years")
 
 st.divider()
 
