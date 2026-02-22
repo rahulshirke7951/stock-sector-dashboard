@@ -125,7 +125,7 @@ m3.metric("📅 Annualized CAGR", f"{df_sum['CAGR %'].mean():.1f}%")
 st.divider()
 
 # --- TABS ---
-t1, t2, t3, t4 = st.tabs(["📊 Visuals", "📋 Performance Stats", "📅 Monthly Heatmap", "🏢 Quarterly Heatmap"])
+t1, t2, t3, t4 = st.tabs(["📊 Visuals", "📋 Performance Stats", "📅 Monthly Heatmap", "🏢 Quarterly Heatmap","📆 Daily Heatmap"])
 
 with t1:
     v_col1, v_col2 = st.columns([1, 1.5])
@@ -184,3 +184,44 @@ with t4:
         st.dataframe(f_q_final.style.background_gradient(cmap='RdYlGn', axis=None).format("{:.2f}%"), use_container_width=True)
     except:
         st.info("ℹ️ Quarterly data not found in Excel.")
+
+with t5:
+    # --- INTERNAL SELECTION UI ---
+    sel_col1, sel_col2 = st.columns([1, 2])
+    
+    with sel_col1:
+        # Generate list of available months from the price data
+        available_months = sorted(prices_df.index.strftime('%Y-%m').unique().tolist(), reverse=True)
+        selected_month_str = st.selectbox("📅 Select Month to Analyze", available_months, key="daily_view_sel")
+
+    st.divider()
+
+    # --- CALCULATION & DISPLAY ---
+    try:
+        # 1. Calculate Daily % Change for selected stocks
+        # We use prices_df (all data) to ensure we have the previous day's price for the first day of the month
+        daily_ret = prices_df[selected_stocks].pct_change() * 100
+        
+        # 2. Filter for the specific month chosen above
+        day_view = daily_ret[daily_ret.index.strftime('%Y-%m') == selected_month_str].copy()
+        
+        if not day_view.empty:
+            st.subheader(f"Daily Performance: {selected_month_str}")
+            
+            # 3. Clean up the index for better table display (e.g., "01 (Mon)")
+            day_view.index = day_view.index.strftime('%d (%a)')
+            
+            # 4. Render the Heatmap Table
+            st.dataframe(
+                day_view.style.background_gradient(cmap='RdYlGn', axis=None)
+                .format("{:.2f}%"), 
+                use_container_width=True
+            )
+            
+            # 5. Quick Stats Footer
+            st.caption(f"Showing {len(day_view)} trading sessions for {selected_month_str}.")
+        else:
+            st.info("No trading data available for the selected month.")
+            
+    except Exception as e:
+        st.error(f"Error generating daily view: {e}")
