@@ -262,3 +262,38 @@ with t5:
             
     except Exception as e:
         st.error(f"Error: {e}")
+
+
+# --- DOWNLOAD SECTION ---
+            st.divider()
+            d_col1, d_col2 = st.columns(2)
+
+            with d_col1:
+                # 1. Raw Prices Download
+                csv_prices = filtered_prices.to_csv().encode('utf-8')
+                st.download_button(
+                    label="📥 Download Raw Prices (CSV)",
+                    data=csv_prices,
+                    file_name="raw_prices_export.csv",
+                    mime='text/csv',
+                    use_container_width=True
+                )
+
+            with d_col2:
+                # 2. Smart Summary Report
+                # We calculate a quick summary table: Total Return & Max Daily Gain
+                summary_df = pd.DataFrame({
+                    'Total Period Return (%)': day_view.sum(),
+                    'Best Day (%)': day_view.max(),
+                    'Worst Day (%)': day_view.min(),
+                    'Average Daily Move (%)': day_view.mean()
+                })
+                
+                csv_summary = summary_df.to_csv().encode('utf-8')
+                st.download_button(
+                    label="📊 Download Performance Summary",
+                    data=csv_summary,
+                    file_name="performance_summary.csv",
+                    mime='text/csv',
+                    use_container_width=True
+                )
