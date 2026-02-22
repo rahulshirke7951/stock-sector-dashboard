@@ -204,16 +204,16 @@ with t5:
         day_view = daily_ret[daily_ret.index.strftime('%Y-%m').isin(sel_months)].copy()
         
         if not day_view.empty:
-            # --- STEP 1: CALCULATE THE SUMMARY FIRST ---
-            # This is the "Brain" that finds our Top 2 winners
+            # --- STEP 1: CALCULATE SUMMARY & REORDER COLUMNS ---
+            # Reordered as: Total Return -> Best Day -> Worst Day -> Avg Daily Move
             summary_df = pd.DataFrame({
                 'Total Return (%)': day_view.sum(),
-                'Avg Daily Move (%)': day_view.mean(),
                 'Best Day (%)': day_view.max(),
-                'Worst Day (%)': day_view.min()
+                'Worst Day (%)': day_view.min(),
+                'Avg Daily Move (%)': day_view.mean()
             }).sort_values(by='Total Return (%)', ascending=False)
 
-            # --- STEP 2: DEFINE TOP 2 NAMES ---
+            # --- STEP 2: DYNAMIC TOP 2 WINNERS ---
             top_2_names = summary_df.head(2).index.tolist()
 
             # --- STEP 3: INSIGHT TILES ---
@@ -229,11 +229,11 @@ with t5:
             
             t_col1, t_col2, t_col3 = st.columns(3)
             with t_col1:
-                st.metric("🥇 Period Leader", f"{overall_val:.2f}%", f"Stock: {overall_winner}")
+                st.metric("🥇 Period Leader", f"{overall_val:.2f}%", f"{overall_winner}")
             with t_col2:
-                st.metric("🚀 Top Daily Move", f"{max_val:.2f}%", f"{best_s} on {best_d}")
+                st.metric("🚀 Top Daily Move", f"{max_val:.2f}%", f"{best_s} ({best_d})")
             with t_col3:
-                st.metric("📉 Deepest Day Cut", f"{min_val:.2f}%", f"{worst_s} on {worst_d}")
+                st.metric("📉 Deepest Day Cut", f"{min_val:.2f}%", f"{worst_s} ({worst_d})")
             
             # --- STEP 4: PERFORMANCE SUMMARY TABLE ---
             st.subheader("📊 Performance Deep-Dive")
@@ -244,19 +244,19 @@ with t5:
 
             st.write("") 
 
-            # --- STEP 5: TREND CHART (With the fixed Top 2 selection) ---
+            # --- STEP 5: TREND CHART (With Force-Refresh Logic) ---
             chart_col, ctrl_col = st.columns([4, 1]) 
 
             with ctrl_col:
                 st.write("🔍 **Chart Filters**")
-                # We use the top_2_names we calculated in Step 2 here
+                # The 'key' now includes sel_months so it refreshes when the month changes
                 sel_stocks_chart = st.multiselect(
                     "Select Stocks:", 
                     selected_stocks, 
                     default=top_2_names, 
-                    key="d_stock"
+                    key=f"chart_select_{sel_months}" 
                 )
-                st.caption("Top 2 winners auto-selected.")
+                st.caption("Top 2 winners are auto-selected.")
 
             with chart_col:
                 if sel_stocks_chart:
