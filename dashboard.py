@@ -245,24 +245,7 @@ with t5:
                 use_container_width=True
             )
 
-            # --- DOWNLOAD SECTION ---
-            st.divider()
-            # Convert the filtered price data (not returns) to CSV for the download
-            csv_data = filtered_prices.to_csv().encode('utf-8')
-            st.download_button(
-                label="📥 Download Filtered Prices as CSV",
-                data=csv_data,
-                file_name=f"stock_prices_export.csv",
-                mime='text/csv',
-                help="Click to download the raw price data based on your sidebar filters."
-            )
             
-        else:
-            st.info("Please select a valid month.")
-            
-    except Exception as e:
-        st.error(f"Error: {e}")
-
 
 # --- DOWNLOAD SECTION ---
             st.divider()
