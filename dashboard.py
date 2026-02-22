@@ -184,6 +184,9 @@ with t4:
         st.dataframe(f_q_final.style.background_gradient(cmap='RdYlGn', axis=None).format("{:.2f}%"), use_container_width=True)
     except:
         st.info("ℹ️ Quarterly data not found in Excel.")
+
+
+
 with t5:
     # 1. Selection UI
     available_months = sorted(
@@ -192,7 +195,7 @@ with t5:
     )
     default_month = [available_months[0]] if available_months else []
 
-    sel_months = st.multiselect("📅 Select Month(s)", available_months, default=default_month, key="d_month")
+    sel_months = st.multiselect("📅 Select Month(s) to Analyze", available_months, default=default_month, key="d_month")
 
     st.divider()
 
@@ -202,11 +205,7 @@ with t5:
         day_view = daily_ret[daily_ret.index.strftime('%Y-%m').isin(sel_months)].copy()
         
         if not day_view.empty:
-            # --- SMART LOGIC: Find Top 2 Performers ---
-            month_totals = day_view.sum().sort_values(ascending=False)
-            top_2_names = month_totals.head(2).index.tolist()
-
-            # --- INSIGHT METRICS ---
+            # --- INSIGHT METRICS (The Tiles) ---
             max_val, min_val = day_view.max().max(), day_view.min().min()
             best_s, worst_s = day_view.max().idxmax(), day_view.min().idxmin()
             
@@ -214,16 +213,39 @@ with t5:
             m_col1.metric(f"🚀 Top Move ({best_s})", f"{max_val:.2f}%")
             m_col2.metric(f"📉 Deepest Cut ({worst_s})", f"{min_val:.2f}%")
             
+            # --- NEW: EMBEDDED PERFORMANCE SUMMARY ---
+            st.subheader("📊 Performance Deep-Dive")
+            summary_df = pd.DataFrame({
+                'Total Return (%)': day_view.sum(),
+                'Avg Daily Move (%)': day_view.mean(),
+                'Best Day (%)': day_view.max(),
+                'Worst Day (%)': day_view.min()
+            }).sort_values(by='Total Return (%)', ascending=False)
+            
+            st.dataframe(summary_df.style.background_gradient(cmap='RdYlGn', subset=['Total Return (%)']).format("{:.2f}%"), use_container_width=True)
+
+            st.write("") # Spacer
+
+            # --- SMART LOGIC: Find Top 2 Performers for Chart Default ---
+            # We use the summary_df we just built to grab the top 2 names
+            top_2_names = summary_df.head(2).index.tolist()
+
             # --- LAYOUT: 80% Chart, 20% Controls ---
             chart_col, ctrl_col = st.columns([4, 1]) 
 
             with ctrl_col:
-                st.write("🔍 **Filters**")
-                sel_stocks_chart = st.multiselect("Stocks:", selected_stocks, default=top_2_names, key="d_stock")
-                st.caption("Top 2 performers auto-selected.")
+                st.write("🔍 **Chart Filters**")
+                sel_stocks_chart = st.multiselect(
+                    "Select Stocks:", 
+                    selected_stocks, 
+                    default=top_2_names, # Fixed: Now uses the ranked list
+                    key="d_stock"
+                )
+                st.caption("Top 2 winners auto-selected.")
 
             with chart_col:
                 if sel_stocks_chart:
+                    st.subheader("🕵️ Daily Volatility Trend")
                     fig_daily = px.line(
                         day_view[sel_stocks_chart], 
                         template="plotly_white", 
@@ -246,36 +268,18 @@ with t5:
 
             # --- DOWNLOAD SECTION ---
             st.divider()
+            st.write("💾 **Export Data**")
             d_col1, d_col2 = st.columns(2)
 
             with d_col1:
                 csv_prices = filtered_prices.to_csv().encode('utf-8')
-                st.download_button(
-                    label="📥 Download Raw Prices (CSV)",
-                    data=csv_prices,
-                    file_name="raw_prices_export.csv",
-                    mime='text/csv',
-                    use_container_width=True
-                )
+                st.download_button(label="📥 Download Raw Prices", data=csv_prices, file_name="prices.csv", mime='text/csv', use_container_width=True)
 
             with d_col2:
-                summary_df = pd.DataFrame({
-                    'Total Period Return (%)': day_view.sum(),
-                    'Best Day (%)': day_view.max(),
-                    'Worst Day (%)': day_view.min(),
-                    'Average Daily Move (%)': day_view.mean()
-                })
-                
                 csv_summary = summary_df.to_csv().encode('utf-8')
-                st.download_button(
-                    label="📊 Download Performance Summary",
-                    data=csv_summary,
-                    file_name="performance_summary.csv",
-                    mime='text/csv',
-                    use_container_width=True
-                )
+                st.download_button(label="📊 Download Summary Report", data=csv_summary, file_name="summary.csv", mime='text/csv', use_container_width=True)
         else:
             st.info("No data available for the selected period.")
 
     except Exception as e:
-        st.error(f"An error occurred in the Daily View: {e}")
+        st.error(f"An error occurred: {e}")
