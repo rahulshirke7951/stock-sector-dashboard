@@ -205,7 +205,7 @@ with t5:
         day_view = daily_ret[daily_ret.index.strftime('%Y-%m').isin(sel_months)].copy()
         
         if not day_view.empty:
-            # --- CALCULATE SUMMARY FIRST TO FIND THE MONTHLY WINNER ---
+            # --- CALCULATE SUMMARY ---
             summary_df = pd.DataFrame({
                 'Total Return (%)': day_view.sum(),
                 'Avg Daily Move (%)': day_view.mean(),
@@ -213,25 +213,29 @@ with t5:
                 'Worst Day (%)': day_view.min()
             }).sort_values(by='Total Return (%)', ascending=False)
 
-            # --- INSIGHT TILES (Now with 3 Columns) ---
-            # Finding the Overall Winner, Best Single Day, and Worst Single Day
+            # --- INSIGHT TILES (Refined for "Real Hit") ---
+            # 1. Period Leader (Total growth across all selected months)
             overall_winner = summary_df.index[0]
             overall_val = summary_df.iloc[0]['Total Return (%)']
             
+            # 2. Daily Extremes with Dates
             max_val, min_val = day_view.max().max(), day_view.min().min()
-            best_s, worst_s = day_view.max().idxmax(), day_view.min().idxmin()
+            best_s = day_view.max().idxmax()
+            best_d = day_view[best_s].idxmax().strftime('%d %b')
+            
+            worst_s = day_view.min().idxmin()
+            worst_d = day_view[worst_s].idxmin().strftime('%d %b')
             
             t_col1, t_col2, t_col3 = st.columns(3)
             with t_col1:
-                st.metric(f"🏆 Monthly Leader", f"{overall_winner}", f"{overall_val:.2f}% Total")
+                st.metric("🥇 Period Leader", f"{overall_val:.2f}%", f"Stock: {overall_winner}")
             with t_col2:
-                st.metric(f"🚀 Top Day Move", f"{best_s}", f"{max_val:.2f}%")
+                st.metric("🚀 Top Daily Move", f"{max_val:.2f}%", f"{best_s} on {best_d}")
             with t_col3:
-                st.metric(f"📉 Deepest Day Cut", f"{worst_s}", f"{min_val:.2f}%")
+                st.metric("📉 Deepest Day Cut", f"{min_val:.2f}%", f"{worst_s} on {worst_d}")
             
-            # --- PERFORMANCE DEEP-DIVE (Lighter Color Scaling) ---
+            # --- PERFORMANCE DEEP-DIVE ---
             st.subheader("📊 Performance Deep-Dive")
-            # Using 'YlGn' (Yellow to Green) for a lighter, professional look on the winner's column
             st.dataframe(
                 summary_df.style.background_gradient(cmap='YlGn', subset=['Total Return (%)']).format("{:.2f}%"), 
                 use_container_width=True
@@ -239,16 +243,14 @@ with t5:
 
             st.write("") 
 
-            # --- SMART LOGIC: Top 2 Performers for Chart ---
+            # --- TREND CHART ---
             top_2_names = summary_df.head(2).index.tolist()
-
-            # --- LAYOUT: 80% Chart, 20% Controls ---
             chart_col, ctrl_col = st.columns([4, 1]) 
 
             with ctrl_col:
                 st.write("🔍 **Chart Filters**")
                 sel_stocks_chart = st.multiselect("Stocks:", selected_stocks, default=top_2_names, key="d_stock")
-                st.caption("Top 2 performers auto-selected.")
+                st.caption("Top 2 winners auto-selected.")
 
             with chart_col:
                 if sel_stocks_chart:
@@ -263,7 +265,7 @@ with t5:
                     fig_daily.update_layout(showlegend=False, hovermode="x unified", margin=dict(l=0, r=0, t=10, b=0))
                     st.plotly_chart(fig_daily, use_container_width=True)
 
-            # --- DETAILED HEATMAP (Full Contrast) ---
+            # --- DAILY HEATMAP ---
             st.subheader("📋 Daily Returns Detail (%)")
             table_display = day_view.copy().sort_index(ascending=False)
             table_display.index = table_display.index.strftime('%Y-%m-%d (%a)')
@@ -279,7 +281,7 @@ with t5:
             st.download_button(label="📥 Download Filtered Price History (CSV)", data=csv_prices, file_name="prices.csv", mime='text/csv', use_container_width=True)
             
         else:
-            st.info("No data available for the selected period.")
+            st.info("Please select a valid month.")
 
     except Exception as e:
         st.error(f"An error occurred: {e}")
