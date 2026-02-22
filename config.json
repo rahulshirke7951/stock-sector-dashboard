@@ -22,6 +22,21 @@
                 "MULTICAP.NS",
                 "^CRSLDX"
               ],
+
+  "Metals": [
+  "GOLDBEES.NS",
+  "SILVERBEES.NS",
+  "TATASTEEL.NS",
+  "JSWSTEEL.NS",
+  "HINDALCO.NS",
+  "VEDL.NS",
+  "HINDZINC.NS",
+  "NMDC.NS",
+  "SAIL.NS",
+  "NATIONALUM.NS",
+  "JINDALSTEL.NS",
+  "MOIL.NS"
+],
     
     "Banking": ["HDFCBANK.NS", "ICICIBANK.NS", "SBIN.NS", "AXISBANK.NS", "KOTAKBANK.NS", "BAJFINANCE.NS", "BAJAJFINSV.NS", "INDUSINDBK.NS", "PFC.NS", "SHRIRAMFIN.NS"],
     "IT": ["TCS.NS", "INFY.NS", "HCLTECH.NS", "WIPRO.NS", "TECHM.NS", "LTIM.NS", "PERSISTENT.NS", "COFORGE.NS", "MPHASIS.NS", "OFSS.NS"],
