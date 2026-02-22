@@ -192,7 +192,7 @@ with t5:
     with sel_col1:
         # Generate list of available months from the price data
         available_months = sorted(prices_df.index.strftime('%Y-%m').unique().tolist(), reverse=True)
-        selected_month_str = st.selectbox("📅 Select Month to Analyze", available_months, key="daily_view_sel")
+        selected_month_str = st.selectbox("📅 Select Month", available_months, key="daily_view_sel")
 
     st.divider()
 
