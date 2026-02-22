@@ -184,7 +184,6 @@ with t4:
         st.dataframe(f_q_final.style.background_gradient(cmap='RdYlGn', axis=None).format("{:.2f}%"), use_container_width=True)
     except:
         st.info("ℹ️ Quarterly data not found in Excel.")
-
 with t5:
     # 1. Selection UI
     available_months = sorted(
@@ -230,14 +229,14 @@ with t5:
                         template="plotly_white", 
                         labels={"value": "Return %", "index": "Date"},
                         markers=True,
-                        height=450 # Enlarge the height
+                        height=450
                     )
                     fig_daily.update_layout(showlegend=False, hovermode="x unified", margin=dict(l=0, r=0, t=10, b=0))
                     st.plotly_chart(fig_daily, use_container_width=True)
 
             # --- DETAILED HEATMAP (Sorted Latest to Oldest) ---
             st.subheader("📋 Daily Returns Detail (%)")
-            table_display = day_view.copy().sort_index(ascending=False) # Sort newest first
+            table_display = day_view.copy().sort_index(ascending=False)
             table_display.index = table_display.index.strftime('%Y-%m-%d (%a)')
             
             st.dataframe(
@@ -245,14 +244,11 @@ with t5:
                 use_container_width=True
             )
 
-            
-
-# --- DOWNLOAD SECTION ---
+            # --- DOWNLOAD SECTION ---
             st.divider()
             d_col1, d_col2 = st.columns(2)
 
             with d_col1:
-                # 1. Raw Prices Download
                 csv_prices = filtered_prices.to_csv().encode('utf-8')
                 st.download_button(
                     label="📥 Download Raw Prices (CSV)",
@@ -263,8 +259,6 @@ with t5:
                 )
 
             with d_col2:
-                # 2. Smart Summary Report
-                # We calculate a quick summary table: Total Return & Max Daily Gain
                 summary_df = pd.DataFrame({
                     'Total Period Return (%)': day_view.sum(),
                     'Best Day (%)': day_view.max(),
@@ -280,3 +274,8 @@ with t5:
                     mime='text/csv',
                     use_container_width=True
                 )
+        else:
+            st.info("No data available for the selected period.")
+
+    except Exception as e:
+        st.error(f"An error occurred in the Daily View: {e}")
