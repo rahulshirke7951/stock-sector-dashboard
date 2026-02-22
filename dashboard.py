@@ -186,42 +186,66 @@ with t4:
         st.info("ℹ️ Quarterly data not found in Excel.")
 
 with t5:
-    # --- INTERNAL SELECTION UI ---
-    sel_col1, sel_col2 = st.columns([1, 2])
+    # 1. Selection UI - Filtered by the years already selected in your sidebar
+    # We only show months that exist within the 'selected_years' from the sidebar
+    available_months = sorted(
+        prices_df[prices_df.index.year.isin(selected_years)].index.strftime('%Y-%m').unique().tolist(), 
+        reverse=True
+    )
     
-    with sel_col1:
-        # Generate list of available months from the price data
-        available_months = sorted(prices_df.index.strftime('%Y-%m').unique().tolist(), reverse=True)
-        selected_month_str = st.selectbox("📅 Select Month", available_months, key="daily_view_sel")
+    default_month = [available_months[0]] if available_months else []
+
+    selected_months = st.multiselect(
+        "📅 Select Month(s) to Compare", 
+        available_months, 
+        default=default_month, 
+        key="daily_view_multi"
+    )
 
     st.divider()
 
-    # --- CALCULATION & DISPLAY ---
     try:
-        # 1. Calculate Daily % Change for selected stocks
-        # We use prices_df (all data) to ensure we have the previous day's price for the first day of the month
-        daily_ret = prices_df[selected_stocks].pct_change() * 100
+        # 2. Use the 'filtered_prices' variable already defined in your Logic Layer
+        # This ensures 'selected_stocks' and 'selected_years' are already applied
+        daily_ret = filtered_prices.pct_change() * 100
         
-        # 2. Filter for the specific month chosen above
-        day_view = daily_ret[daily_ret.index.strftime('%Y-%m') == selected_month_str].copy()
+        # 3. Filter data for the specific months chosen in the multiselect
+        day_view = daily_ret[daily_ret.index.strftime('%Y-%m').isin(selected_months)].copy()
         
         if not day_view.empty:
-            st.subheader(f"Daily Performance: {selected_month_str}")
+            # --- QUICK STATS ---
+            max_val = day_view.max().max()
+            min_val = day_view.min().min()
             
-            # 3. Clean up the index for better table display (e.g., "01 (Mon)")
-            day_view.index = day_view.index.strftime('%d (%a)')
+            s_col1, s_col2 = st.columns(2)
+            s_col1.metric("🚀 Best Single Day", f"{max_val:.2f}%")
+            s_col2.metric("📉 Worst Single Day", f"{min_val:.2f}%")
+
+            # --- VISUALIZATION (Line Chart) ---
+            st.subheader("🕵️ Daily Volatility Trend")
+            fig_daily = px.line(
+                day_view, 
+                template="plotly_white", 
+                labels={"value": "Return %", "index": "Date"},
+                color_discrete_sequence=px.colors.qualitative.Safe
+            )
+            fig_daily.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
+            fig_daily.update_layout(hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+            st.plotly_chart(fig_daily, use_container_width=True)
+
+            # --- DATA TABLE (Heatmap) ---
+            st.subheader("📋 Daily Returns Detail")
+            table_display = day_view.copy()
+            table_display.index = table_display.index.strftime('%Y-%m-%d (%a)')
             
-            # 4. Render the Heatmap Table
             st.dataframe(
-                day_view.style.background_gradient(cmap='RdYlGn', axis=None)
-                .format("{:.2f}%"), 
+                table_display.style.background_gradient(cmap='RdYlGn', axis=None).format("{:.2f}%"), 
                 use_container_width=True
             )
             
-            # 5. Quick Stats Footer
-            st.caption(f"Showing {len(day_view)} trading sessions for {selected_month_str}.")
+            st.caption(f"Analysis covers {len(day_view)} trading sessions based on sidebar filters.")
         else:
-            st.info("No trading data available for the selected month.")
+            st.info("Please select a month that falls within your sidebar 'Years' selection.")
             
     except Exception as e:
         st.error(f"Error generating daily view: {e}")
