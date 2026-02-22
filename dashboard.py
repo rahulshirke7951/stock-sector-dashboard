@@ -125,7 +125,7 @@ m3.metric("📅 Annualized CAGR", f"{df_sum['CAGR %'].mean():.1f}%")
 st.divider()
 
 # --- TABS ---
-t1, t2, t3, t4 = st.tabs(["📊 Visuals", "📋 Performance Stats", "📅 Monthly Heatmap", "🏢 Quarterly Heatmap","📆 Daily Heatmap"])
+t1, t2, t3, t4, t5 = st.tabs(["📊 Visuals", "📋 Performance Stats", "📅 Monthly Heatmap", "🏢 Quarterly Heatmap","📆 Daily Heatmap"])
 
 with t1:
     v_col1, v_col2 = st.columns([1, 1.5])
