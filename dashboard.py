@@ -186,34 +186,48 @@ with t4:
         st.info("ℹ️ Quarterly data not found in Excel.")
 
 with t5:
-    # 1. Sidebar-synced Month Selection
+    # 1. Selection UI - Filtered by the years you picked in the sidebar
     available_months = sorted(
         prices_df[prices_df.index.year.isin(selected_years)].index.strftime('%Y-%m').unique().tolist(), 
         reverse=True
     )
+    
+    # Default to the most recent month
     default_month = [available_months[0]] if available_months else []
 
-    # Internal UI for Month and Specific Stock selection for the chart
-    ui_col1, ui_col2 = st.columns([1, 1])
-    with ui_col1:
-        sel_months = st.multiselect("📅 Select Month(s)", available_months, default=default_month, key="d_month")
-    with ui_col2:
-        sel_stocks_chart = st.multiselect("🔍 Filter Stocks for Chart", selected_stocks, default=selected_stocks[:3], key="d_stock")
+    # Dropdown to select months
+    sel_months = st.multiselect(
+        "📅 Select Month(s) to Analyze", 
+        available_months, 
+        default=default_month, 
+        key="daily_view_multi"
+    )
 
     st.divider()
 
     try:
-        # 2. Calculate Daily % Change
+        # 2. Logic: Prepare the daily data
         daily_ret = filtered_prices.pct_change() * 100
         day_view = daily_ret[daily_ret.index.strftime('%Y-%m').isin(sel_months)].copy()
         
         if not day_view.empty:
-            # --- SMARTER METRICS ---
-            # Find max/min values and their locations (Stock and Date)
+            # --- SMART LOGIC: Find Top 2 Performers for these specific months ---
+            # It adds up all daily moves to see who grew the most
+            month_totals = day_view.sum().sort_values(ascending=False)
+            top_2_names = month_totals.head(2).index.tolist()
+            
+            # 3. Stock Selector for Chart (Pre-filled with the Top 2 winners)
+            sel_stocks_chart = st.multiselect(
+                "🔍 Filter Stocks for Trend Chart", 
+                selected_stocks, 
+                default=top_2_names, 
+                key="d_stock"
+            )
+
+            # --- INSIGHT METRICS (Best/Worst Day) ---
             max_val = day_view.max().max()
             min_val = day_view.min().min()
             
-            # Identify which stock and date achieved these
             best_stock = day_view.max().idxmax()
             best_date = day_view[best_stock].idxmax().strftime('%d %b')
             
@@ -224,12 +238,12 @@ with t5:
             m_col1.metric(f"🚀 Top Move ({best_stock})", f"{max_val:.2f}%", f"on {best_date}")
             m_col2.metric(f"📉 Deepest Cut ({worst_stock})", f"{min_val:.2f}%", f"on {worst_date}")
 
-            # --- DYNAMIC CHART ---
-            st.subheader("🕵️ Daily Volatility Trend")
+            # --- VISUAL TREND (Line Chart) ---
             if sel_stocks_chart:
+                st.subheader("🕵️ Daily Volatility Trend")
                 fig_daily = px.line(
                     day_view[sel_stocks_chart], 
-                    template="plotly_white",
+                    template="plotly_white", 
                     labels={"value": "Return %", "index": "Date"},
                     markers=True
                 )
@@ -237,9 +251,9 @@ with t5:
                 fig_daily.update_layout(hovermode="x unified")
                 st.plotly_chart(fig_daily, use_container_width=True)
             else:
-                st.warning("Please select at least one stock to view the trend chart.")
+                st.warning("Please select at least one stock to view the chart.")
 
-            # --- DATA TABLE ---
+            # --- DETAILED HEATMAP (The Table) ---
             st.subheader("📋 Daily Returns Detail (%)")
             table_display = day_view.copy()
             table_display.index = table_display.index.strftime('%Y-%m-%d (%a)')
@@ -248,8 +262,10 @@ with t5:
                 table_display.style.background_gradient(cmap='RdYlGn', axis=None).format("{:.2f}%"), 
                 use_container_width=True
             )
+            
+            st.caption(f"Analysis covers {len(day_view)} trading sessions based on your selections.")
         else:
-            st.info("No data available for the selected months/years.")
+            st.info("Please select at least one month that matches your Sidebar Year filter.")
             
     except Exception as e:
         st.error(f"Error in Daily View: {e}")
