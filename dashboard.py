@@ -186,19 +186,14 @@ with t4:
         st.info("ℹ️ Quarterly data not found in Excel.")
 
 with t5:
-    # 1. Selection UI - Filtered by sidebar years
+    # 1. Selection UI
     available_months = sorted(
         prices_df[prices_df.index.year.isin(selected_years)].index.strftime('%Y-%m').unique().tolist(), 
         reverse=True
     )
     default_month = [available_months[0]] if available_months else []
 
-    sel_months = st.multiselect(
-        "📅 Select Month(s) to Analyze", 
-        available_months, 
-        default=default_month, 
-        key="daily_view_multi"
-    )
+    sel_months = st.multiselect("📅 Select Month(s)", available_months, default=default_month, key="d_month")
 
     st.divider()
 
@@ -212,66 +207,58 @@ with t5:
             month_totals = day_view.sum().sort_values(ascending=False)
             top_2_names = month_totals.head(2).index.tolist()
 
-            # --- INSIGHT METRICS (Best/Worst Day) ---
-            max_val = day_view.max().max()
-            min_val = day_view.min().min()
-            best_stock = day_view.max().idxmax()
-            best_date = day_view[best_stock].idxmax().strftime('%d %b')
-            worst_stock = day_view.min().idxmin()
-            worst_date = day_view[worst_stock].idxmin().strftime('%d %b')
-
-            m_col1, m_col2 = st.columns(2)
-            m_col1.metric(f"🚀 Top Move ({best_stock})", f"{max_val:.2f}%", f"on {best_date}")
-            m_col2.metric(f"📉 Deepest Cut ({worst_stock})", f"{min_val:.2f}%", f"on {worst_date}")
+            # --- INSIGHT METRICS ---
+            max_val, min_val = day_view.max().max(), day_view.min().min()
+            best_s, worst_s = day_view.max().idxmax(), day_view.min().idxmin()
             
-            st.write("") # Add a little spacing
-
-            # --- NEW LAYOUT: Controls on Right, Chart on Left ---
-            chart_col, ctrl_col = st.columns([3, 1]) # 75% for chart, 25% for filters
+            m_col1, m_col2 = st.columns(2)
+            m_col1.metric(f"🚀 Top Move ({best_s})", f"{max_val:.2f}%")
+            m_col2.metric(f"📉 Deepest Cut ({worst_s})", f"{min_val:.2f}%")
+            
+            # --- LAYOUT: 80% Chart, 20% Controls ---
+            chart_col, ctrl_col = st.columns([4, 1]) 
 
             with ctrl_col:
-                st.markdown("##### ⚙️ Chart Controls")
-                sel_stocks_chart = st.multiselect(
-                    "Select Stocks:", 
-                    selected_stocks, 
-                    default=top_2_names, 
-                    key="d_stock"
-                )
-                st.info("💡 Top 2 winners of the selected month are auto-selected.")
+                st.write("🔍 **Filters**")
+                sel_stocks_chart = st.multiselect("Stocks:", selected_stocks, default=top_2_names, key="d_stock")
+                st.caption("Top 2 performers auto-selected.")
 
             with chart_col:
                 if sel_stocks_chart:
-                    st.subheader("🕵️ Daily Volatility Trend")
                     fig_daily = px.line(
                         day_view[sel_stocks_chart], 
                         template="plotly_white", 
                         labels={"value": "Return %", "index": "Date"},
-                        markers=True
+                        markers=True,
+                        height=450 # Enlarge the height
                     )
-                    fig_daily.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
-                    
-                    # LOGIC: Hide the legend to maximize space
-                    fig_daily.update_layout(
-                        showlegend=False, 
-                        hovermode="x unified",
-                        margin=dict(l=0, r=0, t=30, b=0)
-                    )
+                    fig_daily.update_layout(showlegend=False, hovermode="x unified", margin=dict(l=0, r=0, t=10, b=0))
                     st.plotly_chart(fig_daily, use_container_width=True)
-                else:
-                    st.warning("Please select at least one stock.")
 
-            # --- DETAILED HEATMAP ---
+            # --- DETAILED HEATMAP (Sorted Latest to Oldest) ---
             st.subheader("📋 Daily Returns Detail (%)")
-            table_display = day_view.copy()
+            table_display = day_view.copy().sort_index(ascending=False) # Sort newest first
             table_display.index = table_display.index.strftime('%Y-%m-%d (%a)')
             
             st.dataframe(
                 table_display.style.background_gradient(cmap='RdYlGn', axis=None).format("{:.2f}%"), 
                 use_container_width=True
             )
+
+            # --- DOWNLOAD SECTION ---
+            st.divider()
+            # Convert the filtered price data (not returns) to CSV for the download
+            csv_data = filtered_prices.to_csv().encode('utf-8')
+            st.download_button(
+                label="📥 Download Filtered Prices as CSV",
+                data=csv_data,
+                file_name=f"stock_prices_export.csv",
+                mime='text/csv',
+                help="Click to download the raw price data based on your sidebar filters."
+            )
             
         else:
             st.info("Please select a valid month.")
             
     except Exception as e:
-        st.error(f"Error in Daily View: {e}")
+        st.error(f"Error: {e}")
