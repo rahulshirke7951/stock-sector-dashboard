@@ -195,6 +195,8 @@ with t4:
     except:
         st.info("ℹ️ Quarterly data not found in Excel.")
 
+
+
 with t5:
     # 1. Selection UI
     available_months = sorted(
@@ -208,33 +210,33 @@ with t5:
     st.divider()
 
     try:
-        # --- FIXED LOGIC: Calculate returns on FULL dataset first ---
-        # This ensures Feb 1st correctly pulls the move from Jan 31st.
+        # --- LOGIC: Calculate returns on FULL dataset first for bridge accuracy ---
         daily_ret_full = prices_df.pct_change() * 100
         
-        # Identify the selected date range
+        # Identify the specific dates for the selected months
         target_indices = prices_df[prices_df.index.strftime('%Y-%m').isin(sel_months)].index
         
         if not target_indices.empty:
-            # Sliced data with accurate returns for the table and trend
-            day_view = daily_ret_full.loc[target_indices].copy()
+            # --- CRITICAL FIX: Filter by BOTH Selected Dates AND Selected Stocks ---
+            day_view = daily_ret_full.loc[target_indices, selected_stocks].copy()
 
-            # --- STEP 1: CALCULATE SUMMARY & REORDER COLUMNS ---
+            # --- STEP 1: DYNAMIC SUMMARY (Recalculated for the selected period) ---
+            # This ensures the ranking changes when you change months
             summary_df = pd.DataFrame({
                 'Total Return (%)': day_view.sum(),
                 'Best Day (%)': day_view.max(),
                 'Worst Day (%)': day_view.min(),
                 'Avg Daily Move (%)': day_view.mean()
-            }).sort_values(by='Total Return (%)', ascending=False)
+            }).sort_values(by='Total Return (%)', ascending=False) # Re-ranks every time UI changes
 
             # --- STEP 2: DYNAMIC TOP 2 WINNERS ---
+            # These are now the winners OF THE SELECTED MONTH(S) only
             top_2_names = summary_df.head(2).index.tolist()
 
-            # --- STEP 3: INSIGHT TILES (Restored Detailed Version) ---
+            # --- STEP 3: INSIGHT TILES (Update based on new summary) ---
             overall_winner = summary_df.index[0]
             overall_val = summary_df.iloc[0]['Total Return (%)']
             
-            # Finding specific dates for the Best/Worst days globally across the selection
             max_val, min_val = day_view.max().max(), day_view.min().min()
             best_s = day_view.max().idxmax()
             best_d = day_view[best_s].idxmax().strftime('%d %b %Y')
@@ -250,7 +252,7 @@ with t5:
             with t_col3:
                 st.metric("📉 Deepest Day Cut", f"{min_val:.2f}%", f"{worst_s} ({worst_d})")
             
-            # --- STEP 4: PERFORMANCE SUMMARY TABLE ---
+            # --- STEP 4: PERFORMANCE SUMMARY TABLE (Re-ranked List) ---
             st.subheader("📊 Performance Deep-Dive")
             st.dataframe(
                 summary_df.style.background_gradient(cmap='YlGn', subset=['Total Return (%)']).format("{:.2f}%"), 
@@ -259,7 +261,7 @@ with t5:
 
             st.write("") 
 
-            # --- STEP 5: TREND CHART (With Cumulative Logic & Restored UI) ---
+            # --- STEP 5: TREND CHART ---
             chart_col, ctrl_col = st.columns([4, 1]) 
 
             with ctrl_col:
@@ -268,16 +270,16 @@ with t5:
                     "Select Stocks:", 
                     selected_stocks, 
                     default=top_2_names, 
-                    key=f"chart_select_{sel_months}" 
+                    key=f"chart_select_{sel_months}" # Key ensures refresh on month change
                 )
-                st.caption("Top 2 winners are auto-selected.")
+                st.caption("Winners for selected period are auto-selected.")
 
             with chart_col:
                 if sel_stocks_chart:
-                    st.subheader("🕵️ Performance Trend (Cumulative %)")
+                    st.subheader(f"🕵️ Performance Trend ({', '.join(sel_months)})")
                     
-                    # Calculate Compounded Trend based on the accurate daily returns
                     chart_data = day_view[sel_stocks_chart].copy()
+                    # Calculate compounded growth starting from 0% at the start of the selection
                     cum_trend_pct = ((1 + chart_data / 100).cumprod() - 1) * 100
                     
                     fig_trend = px.line(
@@ -287,12 +289,11 @@ with t5:
                         markers=True,
                         height=450
                     )
-                    # Restored UI: Hovermode and zero line
                     fig_trend.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.7)
                     fig_trend.update_layout(showlegend=False, hovermode="x unified", margin=dict(l=0, r=0, t=10, b=0))
                     st.plotly_chart(fig_trend, use_container_width=True)
 
-            # --- STEP 6: DAILY HEATMAP (Restored descending sort & day names) ---
+            # --- STEP 6: DAILY HEATMAP ---
             st.subheader("📋 Daily Returns Detail (%)")
             table_display = day_view.copy().sort_index(ascending=False)
             table_display.index = table_display.index.strftime('%Y-%m-%d (%a)')
