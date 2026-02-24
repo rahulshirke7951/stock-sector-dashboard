@@ -209,13 +209,12 @@ with t5:
     st.divider()
 
     try:
-        # 2. Prepare the daily data
+        # 2. Prepare the daily data (This stays the same for your table)
         daily_ret = filtered_prices.pct_change() * 100
         day_view = daily_ret[daily_ret.index.strftime('%Y-%m').isin(sel_months)].copy()
         
         if not day_view.empty:
             # --- STEP 1: CALCULATE SUMMARY & REORDER COLUMNS ---
-            # Reordered as: Total Return -> Best Day -> Worst Day -> Avg Daily Move
             summary_df = pd.DataFrame({
                 'Total Return (%)': day_view.sum(),
                 'Best Day (%)': day_view.max(),
@@ -254,12 +253,11 @@ with t5:
 
             st.write("") 
 
-            # --- STEP 5: TREND CHART (With Force-Refresh Logic) ---
+            # --- STEP 5: NEW TREND LOGIC (Cumulative Growth) ---
             chart_col, ctrl_col = st.columns([4, 1]) 
 
             with ctrl_col:
                 st.write("🔍 **Chart Filters**")
-                # The 'key' now includes sel_months so it refreshes when the month changes
                 sel_stocks_chart = st.multiselect(
                     "Select Stocks:", 
                     selected_stocks, 
@@ -270,18 +268,34 @@ with t5:
 
             with chart_col:
                 if sel_stocks_chart:
-                    st.subheader("🕵️ Daily Volatility Trend")
-                    fig_daily = px.line(
-                        day_view[sel_stocks_chart], 
+                    st.subheader("🕵️ Performance Trend (Cumulative %)")
+                    
+                    # LOGIC CHANGE: Calculate the compounded trend for the chart only
+                    # This starts at 0% on the first day of the selection
+                    chart_data = day_view[sel_stocks_chart].copy()
+                    cum_trend = (1 + chart_data / 100).cumprod() - 1
+                    cum_trend_pct = cum_trend * 100
+                    
+                    fig_trend = px.line(
+                        cum_trend_pct, 
                         template="plotly_white", 
-                        labels={"value": "Return %", "index": "Date"},
+                        labels={"value": "Growth %", "index": "Date"},
                         markers=True,
                         height=450
                     )
-                    fig_daily.update_layout(showlegend=False, hovermode="x unified", margin=dict(l=0, r=0, t=10, b=0))
-                    st.plotly_chart(fig_daily, use_container_width=True)
+                    
+                    # Add a horizontal line at 0 for reference
+                    fig_trend.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.7)
+                    
+                    fig_trend.update_layout(
+                        showlegend=True, 
+                        hovermode="x unified", 
+                        margin=dict(l=0, r=0, t=10, b=0),
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                    )
+                    st.plotly_chart(fig_trend, use_container_width=True)
 
-            # --- STEP 6: DAILY HEATMAP ---
+            # --- STEP 6: DAILY HEATMAP (Unchanged, shows daily returns) ---
             st.subheader("📋 Daily Returns Detail (%)")
             table_display = day_view.copy().sort_index(ascending=False)
             table_display.index = table_display.index.strftime('%Y-%m-%d (%a)')
