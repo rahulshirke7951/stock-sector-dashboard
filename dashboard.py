@@ -280,7 +280,7 @@ with t5:
 
             with chart_col:
                 if sel_stocks_chart and not prev_prices.empty:
-                    st.subheader("🕵️ Performance Trend (Relative to Prev. Month Close)")
+                    st.subheader("🕵️ Performance Trend (Relative to Previou Month Close)")
                     
                     # Get the anchor price (last row of data before selection)
                     anchor_price = prev_prices[sel_stocks_chart].tail(1)
