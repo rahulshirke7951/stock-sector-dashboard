@@ -208,20 +208,18 @@ with t5:
     st.divider()
 
     try:
-        # --- CRITICAL CHANGE: CALCULATE RETURNS BEFORE FILTERING ---
-        # 1. Calculate returns for ALL data in your dataframe.
-        # This ensures Feb 1st is calculated against Jan 31st, Jan 1st against Dec 31st, etc.
+        # --- FIXED LOGIC: Calculate returns on FULL dataset first ---
+        # This ensures Feb 1st correctly pulls the move from Jan 31st.
         daily_ret_full = prices_df.pct_change() * 100
         
-        # 2. Identify the specific dates the user selected
+        # Identify the selected date range
         target_indices = prices_df[prices_df.index.strftime('%Y-%m').isin(sel_months)].index
         
         if not target_indices.empty:
-            # 3. Create the view for the table and trend
-            # 'day_view' now has accurate returns for every day, including the start of the month
+            # Sliced data with accurate returns for the table and trend
             day_view = daily_ret_full.loc[target_indices].copy()
 
-            # --- STEP 1: CALCULATE SUMMARY & REORDER ---
+            # --- STEP 1: CALCULATE SUMMARY & REORDER COLUMNS ---
             summary_df = pd.DataFrame({
                 'Total Return (%)': day_view.sum(),
                 'Best Day (%)': day_view.max(),
@@ -232,18 +230,25 @@ with t5:
             # --- STEP 2: DYNAMIC TOP 2 WINNERS ---
             top_2_names = summary_df.head(2).index.tolist()
 
-            # --- STEP 3: INSIGHT TILES ---
+            # --- STEP 3: INSIGHT TILES (Restored Detailed Version) ---
             overall_winner = summary_df.index[0]
             overall_val = summary_df.iloc[0]['Total Return (%)']
+            
+            # Finding specific dates for the Best/Worst days globally across the selection
             max_val, min_val = day_view.max().max(), day_view.min().min()
+            best_s = day_view.max().idxmax()
+            best_d = day_view[best_s].idxmax().strftime('%d %b %Y')
+            
+            worst_s = day_view.min().idxmin()
+            worst_d = day_view[worst_s].idxmin().strftime('%d %b %Y')
             
             t_col1, t_col2, t_col3 = st.columns(3)
             with t_col1:
                 st.metric("🥇 Period Leader", f"{overall_val:.2f}%", f"{overall_winner}")
             with t_col2:
-                st.metric("🚀 Top Daily Move", f"{max_val:.2f}%")
+                st.metric("🚀 Top Daily Move", f"{max_val:.2f}%", f"{best_s} ({best_d})")
             with t_col3:
-                st.metric("📉 Deepest Day Cut", f"{min_val:.2f}%")
+                st.metric("📉 Deepest Day Cut", f"{min_val:.2f}%", f"{worst_s} ({worst_d})")
             
             # --- STEP 4: PERFORMANCE SUMMARY TABLE ---
             st.subheader("📊 Performance Deep-Dive")
@@ -252,25 +257,42 @@ with t5:
                 use_container_width=True
             )
 
-            # --- STEP 5: TREND CHART (Compounded from start of selection) ---
+            st.write("") 
+
+            # --- STEP 5: TREND CHART (With Cumulative Logic & Restored UI) ---
             chart_col, ctrl_col = st.columns([4, 1]) 
+
             with ctrl_col:
                 st.write("🔍 **Chart Filters**")
-                sel_stocks_chart = st.multiselect("Stocks:", selected_stocks, default=top_2_names, key=f"ch_{sel_months}")
+                sel_stocks_chart = st.multiselect(
+                    "Select Stocks:", 
+                    selected_stocks, 
+                    default=top_2_names, 
+                    key=f"chart_select_{sel_months}" 
+                )
+                st.caption("Top 2 winners are auto-selected.")
 
             with chart_col:
                 if sel_stocks_chart:
-                    st.subheader("📈 Cumulative Trend")
-                    # We compound the returns starting from 0% at the beginning of selection
+                    st.subheader("🕵️ Performance Trend (Cumulative %)")
+                    
+                    # Calculate Compounded Trend based on the accurate daily returns
                     chart_data = day_view[sel_stocks_chart].copy()
-                    # (1 + r).cumprod() - 1 gives us the total growth starting from the first selected day
                     cum_trend_pct = ((1 + chart_data / 100).cumprod() - 1) * 100
                     
-                    fig_trend = px.line(cum_trend_pct, template="plotly_white", markers=True, height=400)
-                    fig_trend.add_hline(y=0, line_dash="dash", line_color="gray")
+                    fig_trend = px.line(
+                        cum_trend_pct, 
+                        template="plotly_white", 
+                        labels={"value": "Total Growth %", "index": "Date"},
+                        markers=True,
+                        height=450
+                    )
+                    # Restored UI: Hovermode and zero line
+                    fig_trend.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.7)
+                    fig_trend.update_layout(showlegend=False, hovermode="x unified", margin=dict(l=0, r=0, t=10, b=0))
                     st.plotly_chart(fig_trend, use_container_width=True)
 
-            # --- STEP 6: DAILY HEATMAP (Now accurate for first day of month) ---
+            # --- STEP 6: DAILY HEATMAP (Restored descending sort & day names) ---
             st.subheader("📋 Daily Returns Detail (%)")
             table_display = day_view.copy().sort_index(ascending=False)
             table_display.index = table_display.index.strftime('%Y-%m-%d (%a)')
@@ -279,8 +301,14 @@ with t5:
                 table_display.style.background_gradient(cmap='RdYlGn', axis=None).format("{:.2f}%"), 
                 use_container_width=True
             )
+
+            # --- STEP 7: DOWNLOAD ---
+            st.divider()
+            csv_prices = filtered_prices.to_csv().encode('utf-8')
+            st.download_button(label="📥 Download Filtered Price History (CSV)", data=csv_prices, file_name="prices.csv", mime='text/csv', use_container_width=True)
             
         else:
-            st.info("Please select a month.")
+            st.info("Please select a valid month.")
+
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"An error occurred: {e}")
