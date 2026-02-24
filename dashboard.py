@@ -209,14 +209,26 @@ with t5:
     st.divider()
 
     try:
-        # 2. Prepare the daily data (This stays the same for your table)
-        daily_ret = filtered_prices.pct_change() * 100
-        day_view = daily_ret[daily_ret.index.strftime('%Y-%m').isin(sel_months)].copy()
+        # --- LOGIC: Identify selected dates vs. the "Anchor Date" from previous period ---
+        # Get all dates in the selected months
+        target_indices = prices_df[prices_df.index.strftime('%Y-%m').isin(sel_months)].index
         
-        if not day_view.empty:
+        if not target_indices.empty:
+            first_date = target_indices.min()
+            
+            # Find the last price available BEFORE the first date of selection
+            # This is the "Previous Month Close"
+            prev_prices = prices_df[:first_date].iloc[:-1]
+            
+            # --- 2. Prepare the Daily Returns (For the Heatmap Table) ---
+            # We calculate this on the whole dataset first to ensure the first day 
+            # of the month has a valid return relative to the previous month.
+            daily_ret_all = prices_df.pct_change() * 100
+            day_view = daily_ret_all.loc[target_indices].copy()
+
             # --- STEP 1: CALCULATE SUMMARY & REORDER COLUMNS ---
             summary_df = pd.DataFrame({
-                'Total Return (%)': day_view.sum(),
+                'Total Return (%)': day_view.sum(), # Simplistic sum for the metric tiles
                 'Best Day (%)': day_view.max(),
                 'Worst Day (%)': day_view.min(),
                 'Avg Daily Move (%)': day_view.mean()
@@ -253,7 +265,7 @@ with t5:
 
             st.write("") 
 
-            # --- STEP 5: NEW TREND LOGIC (Cumulative Growth) ---
+            # --- STEP 5: TREND CHART (Using Previous Month Anchor) ---
             chart_col, ctrl_col = st.columns([4, 1]) 
 
             with ctrl_col:
@@ -267,26 +279,30 @@ with t5:
                 st.caption("Top 2 winners are auto-selected.")
 
             with chart_col:
-                if sel_stocks_chart:
-                    st.subheader("🕵️ Performance Trend (Cumulative %)")
+                if sel_stocks_chart and not prev_prices.empty:
+                    st.subheader("🕵️ Performance Trend (Relative to Prev. Month Close)")
                     
-                    # LOGIC CHANGE: Calculate the compounded trend for the chart only
-                    # This starts at 0% on the first day of the selection
-                    chart_data = day_view[sel_stocks_chart].copy()
-                    cum_trend = (1 + chart_data / 100).cumprod() - 1
-                    cum_trend_pct = cum_trend * 100
+                    # Get the anchor price (last row of data before selection)
+                    anchor_price = prev_prices[sel_stocks_chart].tail(1)
+                    # Get the prices for the selected period
+                    current_prices = prices_df.loc[target_indices, sel_stocks_chart]
+                    
+                    # Combine: Anchor + Selection
+                    trend_data = pd.concat([anchor_price, current_prices])
+                    
+                    # Calculate Trend: (Current Price / Anchor Price) - 1
+                    # This makes the very first point of the chart start from the previous month's value
+                    cum_trend_pct = (trend_data / trend_data.iloc[0] - 1) * 100
                     
                     fig_trend = px.line(
                         cum_trend_pct, 
                         template="plotly_white", 
-                        labels={"value": "Growth %", "index": "Date"},
+                        labels={"value": "Growth (%)", "index": "Date"},
                         markers=True,
                         height=450
                     )
                     
-                    # Add a horizontal line at 0 for reference
                     fig_trend.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.7)
-                    
                     fig_trend.update_layout(
                         showlegend=True, 
                         hovermode="x unified", 
@@ -294,8 +310,10 @@ with t5:
                         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
                     )
                     st.plotly_chart(fig_trend, use_container_width=True)
+                else:
+                    st.warning("Not enough historical data to anchor the trend from the previous month.")
 
-            # --- STEP 6: DAILY HEATMAP (Unchanged, shows daily returns) ---
+            # --- STEP 6: DAILY HEATMAP (Preserved) ---
             st.subheader("📋 Daily Returns Detail (%)")
             table_display = day_view.copy().sort_index(ascending=False)
             table_display.index = table_display.index.strftime('%Y-%m-%d (%a)')
