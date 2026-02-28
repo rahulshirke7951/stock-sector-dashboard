@@ -36,7 +36,7 @@ st.markdown("""
 
 folder = "dashboards"
 if not os.path.exists(folder):
-    st.error(f"🚨 Folder '{folder}' not found. Please run your engine script first.")
+    st.error(f"🚨 Folder '{folder}' not found.")
     st.stop()
 
 files = sorted([f for f in os.listdir(folder) if f.endswith(".xlsx")])
@@ -68,6 +68,7 @@ with st.sidebar:
     selected_stocks = st.multiselect("Active Stocks", all_stocks, default=current_default)
 
     st.markdown("---")
+    # ROLLING YEAR LOGIC
     horizon = st.radio("⏱️ Time Horizon", ["Last 12 Months", "Last 6 Months", "Last 3 Months", "All Time", "Custom Years"], index=0)
     
     selected_years = []
@@ -89,7 +90,7 @@ else:
     filtered_prices = prices_df.loc[start_date:][selected_stocks]
 
 if filtered_prices.empty or not selected_stocks:
-    st.warning("⚠️ No data found. Adjust your filters.")
+    st.warning("⚠️ No data found.")
     st.stop()
 
 # CAGR Calculations
@@ -104,7 +105,7 @@ for s in selected_stocks:
         summary.append({"Ticker": s, "Return %": ret, "CAGR %": cagr, "Latest": col.iloc[-1]})
 df_sum = pd.DataFrame(summary).sort_values("Return %", ascending=False)
 
-# --- HEADER & CONTEXT ---
+# --- HEADER ---
 st.markdown(f'<h1 class="main-header">📈 {selected_file.replace(".xlsx", "")}</h1>', unsafe_allow_html=True)
 sync_time = datetime.fromtimestamp(os.path.getmtime(file_path)).strftime('%Y-%m-%d %H:%M')
 
@@ -121,7 +122,7 @@ m3.metric("📅 Annualized CAGR", f"{df_sum['CAGR %'].mean():.1f}%", f"Over {yea
 st.divider()
 
 # --- TABS ---
-t1, t2, t3, t4, t5, t6 = st.tabs(["📊 Visuals", "📋 Performance Stats", "📅 Monthly Heatmap", "🏢 Quarterly Heatmap","📆 Daily Heatmap","🔍 Stock Deep-Dive"])
+t1, t2, t3, t4, t5, t6 = st.tabs(["📊 Visuals", "📋 Stats", "📅 Monthly", "🏢 Quarterly", "📆 Daily", "🔍 Deep-Dive"])
 
 with t1:
     v_col1, v_col2 = st.columns([1, 1.5])
@@ -154,7 +155,10 @@ with t3:
         m_data = pd.read_excel(file_path, sheet_name="monthly_returns", index_col=0)
         m_data.rename(columns=name_map, inplace=True)
         m_data.index = pd.to_datetime(m_data.index)
-        f_m = m_data.loc[filtered_prices.index.min():filtered_prices.index.max(), selected_stocks]
+        # Slicing based on years present in current selection
+        active_years = filtered_prices.index.year.unique()
+        f_m = m_data[m_data.index.year.isin(active_years)][selected_stocks]
+        f_m = f_m.sort_index(ascending=False)
         f_m.index = f_m.index.strftime('%Y-%b')
         st.dataframe(f_m.style.background_gradient(cmap='RdYlGn', axis=None).format("{:.2f}%"), use_container_width=True)
     except: st.info("ℹ️ Monthly data not found.")
@@ -165,47 +169,45 @@ with t4:
         q_data = pd.read_excel(file_path, sheet_name="quarterly_returns", index_col=0)
         q_data.rename(columns=name_map, inplace=True)
         q_data.index = pd.to_datetime([str(x).replace('Q', '-') for x in q_data.index])
-        f_q_final = q_data.loc[filtered_prices.index.min():filtered_prices.index.max(), selected_stocks]
+        active_years = filtered_prices.index.year.unique()
+        f_q_final = q_data[q_data.index.year.isin(active_years)][selected_stocks]
+        f_q_final = f_q_final.sort_index(ascending=False)
         f_q_final.index = f_q_final.index.to_period('Q').astype(str)
         st.dataframe(f_q_final.style.background_gradient(cmap='RdYlGn', axis=None).format("{:.2f}%"), use_container_width=True)
     except: st.info("ℹ️ Quarterly data not found.")
 
 with t5:
     available_months = sorted(filtered_prices.index.strftime('%Y-%m').unique().tolist(), reverse=True)
-    sel_months = st.multiselect("📅 Select Month(s) to Analyze", available_months, default=available_months[:1], key="d_month")
+    sel_months = st.multiselect("📅 Select Month(s)", available_months, default=available_months[:1], key="d_month")
     
     if sel_months:
         daily_ret_full = prices_df.pct_change() * 100
         target_indices = prices_df[prices_df.index.strftime('%Y-%m').isin(sel_months)].index
         day_view = daily_ret_full.loc[target_indices, selected_stocks].copy()
         
-        # Period Insight Metrics
-        summary_p = pd.DataFrame({'Total %': day_view.sum()}).sort_values('Total %', ascending=False)
         t_col1, t_col2, t_col3 = st.columns(3)
-        t_col1.metric("🥇 Period Leader", f"{summary_p.iloc[0]['Total %']:.2f}%", f"{summary_p.index[0]}")
+        t_col1.metric("🥇 Period Leader", f"{day_view.sum().max():.2f}%", f"{day_view.sum().idxmax()}")
         t_col2.metric("🚀 Top Daily Move", f"{day_view.max().max():.2f}%", f"{day_view.max().idxmax()}")
         t_col3.metric("📉 Deepest Day Cut", f"{day_view.min().min():.2f}%", f"{day_view.min().idxmin()}")
 
-        # Cumulative Growth Chart
         st.subheader("🕵️ Performance Trend (Cumulative Growth)")
         cum_trend = ((1 + day_view / 100).cumprod() - 1) * 100
         st.plotly_chart(px.line(cum_trend, template="plotly_white", markers=True), use_container_width=True)
         
-        # Detail Table
         st.subheader("📋 Daily Returns Detail (%)")
         st.dataframe(day_view.sort_index(ascending=False).style.background_gradient(cmap='RdYlGn', axis=None).format("{:.2f}%"), use_container_width=True)
 
 with t6:
     st.subheader("🔍 Individual Stock Deep-Dive")
-    target_stock = st.selectbox("Pick a stock to analyze:", selected_stocks, key="dd_ticker")
+    target_stock = st.selectbox("Pick a stock:", selected_stocks, key="dd_ticker")
     if target_stock:
         s_data = filtered_prices[target_stock].dropna()
         full_p = prices_df[target_stock].dropna()
         ma50 = full_p.rolling(50).mean().loc[s_data.index]
         ma200 = full_p.rolling(200).mean().loc[s_data.index]
         
-        if ma50.iloc[-1] > ma200.iloc[-1]: st.success(f"🚀 **Golden Cross:** {target_stock} is Bullish.")
-        else: st.error(f"⚠️ **Death Cross:** {target_stock} is Bearish.")
+        if ma50.iloc[-1] > ma200.iloc[-1]: st.success("🚀 Golden Cross (Bullish)")
+        else: st.error("⚠️ Death Cross (Bearish)")
 
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Current Price", f"₹{s_data.iloc[-1]:.2f}")
@@ -214,11 +216,11 @@ with t6:
         dd = (s_data / s_data.cummax() - 1) * 100
         c4.metric("Max Drawdown", f"{dd.min():.2f}%")
 
-        fig_main = px.line(s_data, template="plotly_white", title=f"{target_stock} Trend")
+        fig_main = px.line(s_data, template="plotly_white")
         fig_main.add_scatter(x=ma50.index, y=ma50, name="50 DMA", line=dict(dash='dash', color='orange'))
         fig_main.add_scatter(x=ma200.index, y=ma200, name="200 DMA", line=dict(dash='dot', color='red'))
         st.plotly_chart(fig_main, use_container_width=True)
 
         cl, cr = st.columns(2)
         cl.plotly_chart(px.area(dd, title="Drawdown %", template="plotly_white", color_discrete_sequence=['red']), use_container_width=True)
-        cr.plotly_chart(px.histogram(s_data.pct_change()*100, nbins=30, title="Daily Return Dist.", template="plotly_white"), use_container_width=True)
+        cr.plotly_chart(px.histogram(s_data.pct_change()*100, nbins=30, title="Return Distribution", template="plotly_white"), use_container_width=True)
