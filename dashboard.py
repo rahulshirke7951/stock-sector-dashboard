@@ -149,19 +149,20 @@ with t1:
     except: st.info("Rolling data unavailable for this window.")
 
 with t2:
- 
-# Create a dictionary for specific column formatting
-st.dataframe(
-    df_sum.style.background_gradient(subset=["Return %", "CAGR %"], cmap="RdYlGn")
-    .format({
-        "Return %": "{:.2f}%", 
-        "CAGR %": "{:.2f}%", 
-        "Latest": "₹{:.2f}"
-    }), 
-    use_container_width=True, 
-    hide_index=True
-)
-
+    
+    st.subheader("Detailed Performance Metrics")
+    # This must be indented 4 spaces from the 'with' line
+    st.dataframe(
+        df_sum.style.background_gradient(subset=["Return %", "CAGR %"], cmap="RdYlGn")
+        .format({
+            "Return %": "{:.2f}%", 
+            "CAGR %": "{:.2f}%", 
+            "Latest": "₹{:.2f}"
+        }), 
+        use_container_width=True, 
+        hide_index=True
+    )     
+    
 
 with t3:
     try:
