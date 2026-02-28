@@ -460,12 +460,12 @@ with t2:
     st.dataframe(
         display_df.style
             .background_gradient(subset=["Return %", "CAGR %"], cmap="RdYlGn")
-            .background_gradient(subset=["Ann. Volatility %"],          cmap="RdYlGn_r")
+            .background_gradient(subset=["Ann. Vol %"],          cmap="RdYlGn_r")
             .background_gradient(subset=["Sharpe"],              cmap="RdYlGn")
             .format({
                 "Return %":   "{:.2f}%",
                 "CAGR %":     "{:.2f}%",
-                "Ann. Volatility %": "{:.2f}%",
+                "Ann. Vol %": "{:.2f}%",
                 "Sharpe":     "{:.2f}",
                 "Latest":     "₹{:.2f}",
             }),
