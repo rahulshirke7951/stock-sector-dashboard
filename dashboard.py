@@ -324,21 +324,28 @@ with t6:
     
     # 1. Selection
     target_stock = st.selectbox("Pick a stock to analyze in detail:", selected_stocks, key="deep_dive_ticker")
-    
-    if target_stock:
-        # --- DATA PREP ---
+
+if target_stock:
+        # --- UPDATED DATA PREP ---
+        # 1. Get the stock data for the filtered period (for display)
         s_data = filtered_prices[target_stock].dropna()
         
-        # Calculate Returns & Prices
+        # 2. Calculate MAs on the FULL master dataframe (so lines show up immediately)
+        full_series = prices_df[target_stock].dropna()
+        full_ma50 = full_series.rolling(window=50).mean()
+        full_ma200 = full_series.rolling(window=200).mean()
+        
+        # 3. Align the MAs and calculate Watchlist Avg for comparison
+        ma50 = full_ma50.loc[s_data.index]
+        ma200 = full_ma200.loc[s_data.index]
+        watchlist_avg = filtered_prices.mean(axis=1) 
+        
+        # 4. Calculate stats on the filtered slice
         total_ret = ((s_data.iloc[-1] / s_data.iloc[0]) - 1) * 100
         max_price = s_data.max()
         max_date = s_data.idxmax().strftime('%d %b %Y')
         
-        # Calculate Moving Averages (MA)
-        ma50 = s_data.rolling(window=50).mean()
-        ma200 = s_data.rolling(window=200).mean()
-        
-        # Calculate Drawdown
+        # 5. Calculate Drawdown
         rolling_max = s_data.cummax()
         drawdown = (s_data / rolling_max - 1) * 100
 
