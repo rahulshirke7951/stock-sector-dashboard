@@ -215,11 +215,12 @@ if not files:
 with st.sidebar:
     st.title("📂 Watchlist Controls")
 
-    # FIX #1: Add st.rerun() so switching watchlist auto-refreshes without manual button click
+    # FIX #1: Use a session_state flag to trigger rerun AFTER the callback completes.
+    # st.rerun() inside on_change is a no-op in Streamlit — the flag approach is the correct pattern.
     def _on_file_change():
-        """Auto-clear cache AND rerun when user switches watchlist."""
+        """Set a flag; the main script body will call st.rerun() after this callback returns."""
         st.cache_data.clear()
-        st.rerun()
+        st.session_state["_needs_rerun"] = True
 
     selected_file = st.selectbox(
         "Select Watchlist", files,
@@ -275,6 +276,14 @@ with st.sidebar:
     if benchmark_label.strip() and benchmark is None:
         st.caption("⚠️ Ticker not found in loaded data.")
 
+
+# ─────────────────────────────────────────────
+# AUTO-RERUN TRIGGER (watchlist switch)
+# ─────────────────────────────────────────────
+# st.rerun() is a no-op inside callbacks, so _on_file_change() sets a flag instead.
+# We check it here in the main script body where st.rerun() works correctly.
+if st.session_state.pop("_needs_rerun", False):
+    st.rerun()
 
 # ─────────────────────────────────────────────
 # EARLY GUARDS
