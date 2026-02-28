@@ -68,10 +68,15 @@ with st.sidebar:
     all_stocks = sorted(prices_df.columns.tolist())
 
     st.markdown("---")
-    # SELECT ALL TOGGLE
+    
+# SELECT ALL TOGGLE
     select_all = st.toggle("Select All Stocks", value=True)
-    selected_stocks = st.multiselect("Active Stocks", all_stocks, 
-                                     default=all_stocks if select_all else None)
+    
+    # Logic: if toggle is off, default is empty []; if on, default is all stocks
+    current_default = all_stocks if select_all else []
+    
+    selected_stocks = st.multiselect("Active Stocks", all_stocks, default=current_default)
+
     
     available_years = sorted(prices_df.index.year.unique(), reverse=True)
     selected_years = st.multiselect("Years", available_years, default=available_years[:2])
