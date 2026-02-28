@@ -135,7 +135,7 @@ m3.metric("📅 Annualized CAGR", f"{avg_cagr:.1f}%", f"Over {years_val:.1f} Yea
 st.divider()
 
 # --- TABS ---
-t1, t2, t3, t4, t5 = st.tabs(["📊 Visuals", "📋 Performance Stats", "📅 Monthly Heatmap", "🏢 Quarterly Heatmap","📆 Daily Heatmap"])
+t1, t2, t3, t4, t5, t6 = st.tabs(["📊 Visuals", "📋 Performance Stats", "📅 Monthly Heatmap", "🏢 Quarterly Heatmap","📆 Daily Heatmap","Test"])
 
 with t1:
     v_col1, v_col2 = st.columns([1, 1.5])
@@ -313,3 +313,49 @@ with t5:
 
     except Exception as e:
         st.error(f"An error occurred: {e}")
+
+with t6:
+    st.subheader("🔍 Individual Stock Deep-Dive")
+    
+    # 1. Selection for the specific stock
+    target_stock = st.selectbox("Pick a stock to analyze in detail:", selected_stocks, key="deep_dive_ticker")
+    
+    if target_stock:
+        # Data preparation
+        s_data = filtered_prices[target_stock].dropna()
+        
+        # --- CALCULATIONS ---
+        # Moving Averages
+        ma50 = s_data.rolling(window=50).mean()
+        ma200 = s_data.rolling(window=200).mean()
+        
+        # Drawdown
+        rolling_max = s_data.cummax()
+        drawdown = (s_data / rolling_max - 1) * 100
+        
+        # --- UI LAYOUT ---
+        col_a, col_b, col_c = st.columns(3)
+        col_a.metric("Current Price", f"₹{s_data.iloc[-1]:.2f}")
+        col_b.metric("Max Price (Period)", f"₹{s_data.max():.2f}")
+        col_c.metric("Max Drawdown", f"{drawdown.min():.2f}%", delta_color="inverse")
+
+        # --- CHART 1: Price & Momentum ---
+        st.write(f"### 📈 {target_stock} Price & Moving Averages")
+        fig_ma = px.line(s_data, template="plotly_white")
+        fig_ma.add_scatter(x=ma50.index, y=ma50, name="50 DMA", line=dict(dash='dash', color='orange'))
+        fig_ma.add_scatter(x=ma200.index, y=ma200, name="200 DMA", line=dict(dash='dot', color='red'))
+        st.plotly_chart(fig_ma, use_container_width=True)
+
+        # --- CHART 2: Risk & Drawdown ---
+        st.write("### 📉 Peak-to-Trough Drawdown (%)")
+        fig_dd = px.area(drawdown, template="plotly_white", color_discrete_sequence=['#ff4b4b'])
+        fig_dd.update_layout(yaxis_title="Percent Drop from High")
+        st.plotly_chart(fig_dd, use_container_width=True)
+
+        # --- CHART 3: Daily Return Distribution ---
+        st.write("### 📊 Daily Volatility Distribution")
+        daily_pct = s_data.pct_change().dropna() * 100
+        fig_hist = px.histogram(daily_pct, nbins=50, template="plotly_white", 
+                                 title="How often does the stock move X% in a day?")
+        fig_hist.add_vline(x=0, line_color="black", line_width=1)
+        st.plotly_chart(fig_hist, use_container_width=True)
