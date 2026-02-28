@@ -363,29 +363,55 @@ with t6:
 
 
 with t7:
-    st.subheader("🔎 Stock Deep Dive")
+    st.subheader("🔍 Individual Stock Deep-Dive")
+    
+    # Selection for the specific stock
+    target_stock = st.selectbox("Pick a stock to analyze in detail:", selected_stocks, key="deep_dive_ticker")
+    
+    if target_stock:
+        # 1. Data Prep
+        s_data = filtered_prices[target_stock].dropna()
+        
+        # 2. Calculations
+        total_ret = ((s_data.iloc[-1] / s_data.iloc[0]) - 1) * 100
+        max_price = s_data.max()
+        max_date = s_data.idxmax().strftime('%d %b %Y') # Finds the date of the max price
+        
+        rolling_max = s_data.cummax()
+        drawdown = (s_data / rolling_max - 1) * 100
+        
+        # 3. Premium Metric Row
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Current Price", f"₹{s_data.iloc[-1]:.2f}")
+        
+        # ADDED: Total Return % for this specific stock
+        c2.metric("Period Return", f"{total_ret:.2f}%")
+        
+        # ADDED: Max Price with Date as the sub-label
+        c3.metric("Max Price", f"₹{max_price:.2f}", f"Hit on {max_date}", delta_color="normal")
+        
+        c4.metric("Max Drawdown", f"{drawdown.min():.2f}%", delta_color="inverse")
 
-    stock = st.selectbox("Select Stock", selected_stocks)
-    series = filtered_prices[stock].dropna()
+        st.divider()
 
-    if len(series) > 2:
+        # 4. Charts
+        col_left, col_right = st.columns(2)
+        
+        with col_left:
+            st.write(f"### 📈 {target_stock} Trend")
+            fig_p = px.line(s_data, template="plotly_white", color_discrete_sequence=['#002b5b'])
+            # Adding a marker for the Max Price Point
+            fig_p.add_annotation(x=s_data.idxmax(), y=max_price, text="Peak", showarrow=True, arrowhead=1)
+            st.plotly_chart(fig_p, use_container_width=True)
 
-        # Metrics
-        ret = (series.iloc[-1]/series.iloc[0]-1)*100
-        vol = series.pct_change().std()*252**0.5*100
+        with col_right:
+            st.write("### 📉 Drop from Peak (%)")
+            fig_dd = px.area(drawdown, template="plotly_white", color_discrete_sequence=['#ff4b4b'])
+            st.plotly_chart(fig_dd, use_container_width=True)
 
-        cum = series / series.iloc[0]
-        drawdown = (cum/cum.cummax()-1)*100
-        max_dd = drawdown.min()
-
-        c1,c2,c3 = st.columns(3)
-        c1.metric("Return %", f"{ret:.2f}%")
-        c2.metric("Volatility", f"{vol:.2f}%")
-        c3.metric("Max Drawdown", f"{max_dd:.2f}%")
-
-        # Price + moving avg
-        df = pd.DataFrame({"Price":series})
-        df["50DMA"] = series.rolling(50).mean()
-        df["200DMA"] = series.rolling(200).mean()
-
-        st.plotly_chart(px.line(df))
+        # 5. Volatility Distribution
+        st.write("### 📊 Daily Return Frequency")
+        daily_pct = s_data.pct_change().dropna() * 100
+        fig_hist = px.histogram(daily_pct, nbins=40, template="plotly_white", color_discrete_sequence=['#0066cc'])
+        fig_hist.add_vline(x=0, line_color="black", line_dash="dash")
+        st.plotly_chart(fig_hist, use_container_width=True)
