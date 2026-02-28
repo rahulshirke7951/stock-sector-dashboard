@@ -310,6 +310,7 @@ with t5:
                         use_container_width=True,
                         key="dl_prices_t5"
                     )
+
 with t6:
     st.subheader("🔍 Individual Stock Deep-Dive")
     target_stock = st.selectbox("Pick a stock to analyze in detail:", selected_stocks, key="deep_dive_ticker")
