@@ -317,53 +317,72 @@ with t5:
 with t6:
     st.subheader("🔍 Individual Stock Deep-Dive")
     
-    # Selection for the specific stock
+    # 1. Selection
     target_stock = st.selectbox("Pick a stock to analyze in detail:", selected_stocks, key="deep_dive_ticker")
     
     if target_stock:
-        # 1. Data Prep
+        # --- DATA PREP ---
         s_data = filtered_prices[target_stock].dropna()
         
-        # 2. Calculations
+        # Calculate Returns & Prices
         total_ret = ((s_data.iloc[-1] / s_data.iloc[0]) - 1) * 100
         max_price = s_data.max()
-        max_date = s_data.idxmax().strftime('%d %b %Y') # Finds the date of the max price
+        max_date = s_data.idxmax().strftime('%d %b %Y')
         
+        # Calculate Moving Averages (MA)
+        ma50 = s_data.rolling(window=50).mean()
+        ma200 = s_data.rolling(window=200).mean()
+        
+        # Calculate Drawdown
         rolling_max = s_data.cummax()
         drawdown = (s_data / rolling_max - 1) * 100
+
+        # --- SIGNAL LOGIC (Golden/Death Cross) ---
+        last_ma50 = ma50.iloc[-1]
+        last_ma200 = ma200.iloc[-1]
         
-        # 3. Premium Metric Row
+        if last_ma50 > last_ma200:
+            st.success(f"🚀 **Bullish Trend:** {target_stock} is in a **Golden Cross** phase (50 DMA > 200 DMA).")
+        elif last_ma50 < last_ma200:
+            st.error(f"⚠️ **Bearish Trend:** {target_stock} is in a **Death Cross** phase (50 DMA < 200 DMA).")
+        else:
+            st.info("🔄 **Neutral Trend:** Moving averages are currently converging.")
+
+        # --- TOP METRIC CARDS ---
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Current Price", f"₹{s_data.iloc[-1]:.2f}")
-        
-        # ADDED: Total Return % for this specific stock
         c2.metric("Period Return", f"{total_ret:.2f}%")
-        
-        # ADDED: Max Price with Date as the sub-label
-        c3.metric("Max Price", f"₹{max_price:.2f}", f"Hit on {max_date}", delta_color="normal")
-        
+        c3.metric("Max Price", f"₹{max_price:.2f}", f"Peak: {max_date}", delta_color="normal")
         c4.metric("Max Drawdown", f"{drawdown.min():.2f}%", delta_color="inverse")
 
         st.divider()
 
-        # 4. Charts
+        # --- MAIN CHART: PRICE + 50 DMA + 200 DMA ---
+        
+        st.write(f"### 📈 {target_stock} Technical Trend (Price & MAs)")
+        
+        fig_main = px.line(s_data, template="plotly_white", color_discrete_sequence=['#002b5b'])
+        fig_main.add_scatter(x=ma50.index, y=ma50, name="50 DMA", line=dict(dash='dash', color='orange', width=1.5))
+        fig_main.add_scatter(x=ma200.index, y=ma200, name="200 DMA", line=dict(dash='dot', color='red', width=1.5))
+        
+        # Annotate Peak
+        fig_main.add_annotation(x=s_data.idxmax(), y=max_price, text="Cycle Peak", 
+                                showarrow=True, arrowhead=1, bgcolor="white", opacity=0.8)
+        
+        fig_main.update_layout(hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+        st.plotly_chart(fig_main, use_container_width=True)
+
+        # --- BOTTOM ROW: DRAWDOWN & DISTRIBUTION ---
         col_left, col_right = st.columns(2)
         
         with col_left:
-            st.write(f"### 📈 {target_stock} Trend")
-            fig_p = px.line(s_data, template="plotly_white", color_discrete_sequence=['#002b5b'])
-            # Adding a marker for the Max Price Point
-            fig_p.add_annotation(x=s_data.idxmax(), y=max_price, text="Peak", showarrow=True, arrowhead=1)
-            st.plotly_chart(fig_p, use_container_width=True)
-
-        with col_right:
-            st.write("### 📉 Drop from Peak (%)")
+            st.write("### 📉 Peak-to-Trough Drawdown (%)")
             fig_dd = px.area(drawdown, template="plotly_white", color_discrete_sequence=['#ff4b4b'])
             st.plotly_chart(fig_dd, use_container_width=True)
 
-        # 5. Volatility Distribution
-        st.write("### 📊 Daily Return Frequency")
-        daily_pct = s_data.pct_change().dropna() * 100
-        fig_hist = px.histogram(daily_pct, nbins=40, template="plotly_white", color_discrete_sequence=['#0066cc'])
-        fig_hist.add_vline(x=0, line_color="black", line_dash="dash")
-        st.plotly_chart(fig_hist, use_container_width=True)
+        with col_right:
+            st.write("### 📊 Daily Return Frequency")
+            daily_pct = s_data.pct_change().dropna() * 100
+            fig_hist = px.histogram(daily_pct, nbins=40, template="plotly_white", color_discrete_sequence=['#0066cc'])
+            fig_hist.add_vline(x=0, line_color="black", line_dash="dash")
+            st.plotly_chart(fig_hist, use_container_width=True)
