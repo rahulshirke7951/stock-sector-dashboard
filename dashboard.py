@@ -376,7 +376,10 @@ if target_stock:
         fig_main = px.line(s_data, template="plotly_white", color_discrete_sequence=['#002b5b'])
         fig_main.add_scatter(x=ma50.index, y=ma50, name="50 DMA", line=dict(dash='dash', color='orange', width=1.5))
         fig_main.add_scatter(x=ma200.index, y=ma200, name="200 DMA", line=dict(dash='dot', color='red', width=1.5))
-        
+        # Add Watchlist Average for comparison (Relative Strength)
+        fig_main.add_scatter(x=watchlist_avg.index, y=watchlist_avg, name="Watchlist Avg", 
+                             line=dict(color='gray', width=1, dash='dot'), opacity=0.5)
+  
         # Annotate Peak
         fig_main.add_annotation(x=s_data.idxmax(), y=max_price, text="Cycle Peak", 
                                 showarrow=True, arrowhead=1, bgcolor="white", opacity=0.8)
