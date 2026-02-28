@@ -174,24 +174,41 @@ def calc_summary(filtered_df: pd.DataFrame) -> pd.DataFrame:
 
 def parse_quarterly_index(raw_index) -> pd.DatetimeIndex:
     """
-    FIX #3: Robustly parse '2024Q1', 'Q1-2024', '2024-Q1', 'Q1 2024'.
+    Handles ALL quarterly index formats found in the wild:
+      • Raw timestamps / datetime strings: '2022-03-31 00:00:00', '2022-03-31'
+        → Converted directly via pd.to_datetime, then snapped to quarter-start
+      • Quarter label strings: '2024Q1', 'Q1-2024', '2024-Q1', 'Q1 2024'
+        → Parsed by detecting the 'Q' character
+
+    Your Banking file uses raw end-of-quarter timestamps (Mar 31, Jun 30, Sep 30, Dec 31)
+    which map cleanly to Q1, Q2, Q3, Q4 respectively.
     Bad rows become NaT instead of crashing.
     """
     parsed = []
     for x in raw_index:
         s = str(x).strip()
         try:
+            # ── Path 1: Looks like a date/timestamp (contains '-' or '/')
+            if any(c.isdigit() for c in s) and ("/" in s or (s.count("-") >= 2) or len(s) > 7):
+                ts = pd.to_datetime(s)
+                # Snap to the first day of that quarter
+                parsed.append(ts.to_period("Q").to_timestamp())
+                continue
+
+            # ── Path 2: Quarter label string  e.g. '2024Q1', 'Q1-2024'
             s_norm = s.replace("-", "").replace(" ", "")
-            if s_norm[:1] == "Q":
+            if s_norm[:1] == "Q":          # Q12024
                 q = int(s_norm[1])
                 y = int(s_norm[2:])
-            else:
+            else:                          # 2024Q1
                 y = int(s_norm[:4])
                 q = int(s_norm[5])
             month = (q - 1) * 3 + 1
             parsed.append(pd.Timestamp(year=y, month=month, day=1))
+
         except Exception:
             parsed.append(pd.NaT)
+
     return pd.DatetimeIndex(parsed)
 
 
@@ -220,10 +237,23 @@ if not files:
 with st.sidebar:
     st.title("📂 Watchlist Controls")
 
-    selected_file = st.selectbox("Select Watchlist", files, key="main_file_select")
+    def _on_file_change():
+        """Auto-clear cache when user switches watchlist — no manual refresh needed."""
+        st.cache_data.clear()
+
+    selected_file = st.selectbox(
+        "Select Watchlist", files,
+        key="main_file_select",
+        on_change=_on_file_change,
+    )
     file_path = os.path.join(FOLDER, selected_file)
 
-    if st.button("🔄 Reload & Sync Data", use_container_width=True):
+    if st.button(
+        "🔄 Refresh Price Data",
+        use_container_width=True,
+        type="primary",
+        help="Use this ONLY after running your engine to pull fresh market data. Switching watchlists above is fully automatic — no refresh needed.",
+    ):
         st.cache_data.clear()
         st.rerun()
 
