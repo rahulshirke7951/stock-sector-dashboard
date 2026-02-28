@@ -135,7 +135,7 @@ m3.metric("📅 Annualized CAGR", f"{avg_cagr:.1f}%", f"Over {years_val:.1f} Yea
 st.divider()
 
 # --- TABS ---
-t1, t2, t3, t4, t5, t6 = st.tabs(["📊 Visuals", "📋 Performance Stats", "📅 Monthly Heatmap", "🏢 Quarterly Heatmap","📆 Daily Heatmap","Test"])
+t1, t2, t3, t4, t5, t6, t7 = st.tabs(["📊 Visuals", "📋 Performance Stats", "📅 Monthly Heatmap", "🏢 Quarterly Heatmap","📆 Daily Heatmap","Test","Test2"])
 
 with t1:
     v_col1, v_col2 = st.columns([1, 1.5])
@@ -359,3 +359,33 @@ with t6:
                                  title="How often does the stock move X% in a day?")
         fig_hist.add_vline(x=0, line_color="black", line_width=1)
         st.plotly_chart(fig_hist, use_container_width=True)
+
+
+
+with t7:
+    st.subheader("🔎 Stock Deep Dive")
+
+    stock = st.selectbox("Select Stock", selected_stocks)
+    series = filtered_prices[stock].dropna()
+
+    if len(series) > 2:
+
+        # Metrics
+        ret = (series.iloc[-1]/series.iloc[0]-1)*100
+        vol = series.pct_change().std()*252**0.5*100
+
+        cum = series / series.iloc[0]
+        drawdown = (cum/cum.cummax()-1)*100
+        max_dd = drawdown.min()
+
+        c1,c2,c3 = st.columns(3)
+        c1.metric("Return %", f"{ret:.2f}%")
+        c2.metric("Volatility", f"{vol:.2f}%")
+        c3.metric("Max Drawdown", f"{max_dd:.2f}%")
+
+        # Price + moving avg
+        df = pd.DataFrame({"Price":series})
+        df["50DMA"] = series.rolling(50).mean()
+        df["200DMA"] = series.rolling(200).mean()
+
+        st.plotly_chart(px.line(df))
