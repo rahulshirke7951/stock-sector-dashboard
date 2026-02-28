@@ -127,16 +127,10 @@ def load_sheet(file_path: str, sheet: str) -> pd.DataFrame | None:
         return None
 
 def apply_name_map(df: pd.DataFrame, name_map: dict) -> pd.DataFrame:
-    """
-    DYNAMIC FILE SWITCHING FIX: Always rename on a fresh copy — never mutate the
-    cached dataframe. This means switching watchlists in the sidebar is instant
-    and correct without needing a manual cache-clear/reload.
-    """
     return df.rename(columns=name_map)
 
 @st.cache_data(show_spinner=False)
 def compute_corr(_df: pd.DataFrame) -> pd.DataFrame:
-    # FIX #5: Cached full correlation matrix
     return _df.pct_change().dropna().corr()
 
 
@@ -144,10 +138,6 @@ def compute_corr(_df: pd.DataFrame) -> pd.DataFrame:
 # HELPERS
 # ─────────────────────────────────────────────
 def calc_summary(filtered_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Per-stock return / CAGR / annualised volatility / Sharpe.
-    FIX #10: Volatility and Sharpe added.
-    """
     rows = []
     for ticker in filtered_df.columns:
         col = filtered_df[ticker].dropna()
@@ -173,49 +163,37 @@ def calc_summary(filtered_df: pd.DataFrame) -> pd.DataFrame:
 
 
 def parse_quarterly_index(raw_index) -> pd.DatetimeIndex:
-    """
-    Handles ALL quarterly index formats found in the wild:
-      • Raw timestamps / datetime strings: '2022-03-31 00:00:00', '2022-03-31'
-        → Converted directly via pd.to_datetime, then snapped to quarter-start
-      • Quarter label strings: '2024Q1', 'Q1-2024', '2024-Q1', 'Q1 2024'
-        → Parsed by detecting the 'Q' character
-
-    Your Banking file uses raw end-of-quarter timestamps (Mar 31, Jun 30, Sep 30, Dec 31)
-    which map cleanly to Q1, Q2, Q3, Q4 respectively.
-    Bad rows become NaT instead of crashing.
-    """
     parsed = []
     for x in raw_index:
         s = str(x).strip()
         try:
-            # ── Path 1: Looks like a date/timestamp (contains '-' or '/')
             if any(c.isdigit() for c in s) and ("/" in s or (s.count("-") >= 2) or len(s) > 7):
                 ts = pd.to_datetime(s)
-                # Snap to the first day of that quarter
                 parsed.append(ts.to_period("Q").to_timestamp())
                 continue
-
-            # ── Path 2: Quarter label string  e.g. '2024Q1', 'Q1-2024'
             s_norm = s.replace("-", "").replace(" ", "")
-            if s_norm[:1] == "Q":          # Q12024
+            if s_norm[:1] == "Q":
                 q = int(s_norm[1])
                 y = int(s_norm[2:])
-            else:                          # 2024Q1
+            else:
                 y = int(s_norm[:4])
                 q = int(s_norm[5])
             month = (q - 1) * 3 + 1
             parsed.append(pd.Timestamp(year=y, month=month, day=1))
-
         except Exception:
             parsed.append(pd.NaT)
-
     return pd.DatetimeIndex(parsed)
 
 
 def non_contiguous_years(years: list) -> bool:
-    """FIX #8: True when selected years have gaps."""
     s = sorted(years)
     return any(s[i + 1] - s[i] > 1 for i in range(len(s) - 1))
+
+
+def current_quarter_start() -> pd.Timestamp:
+    """Returns the first day of the current quarter."""
+    today = pd.Timestamp.today().normalize()
+    return today.to_period("Q").to_timestamp()
 
 
 # ─────────────────────────────────────────────
@@ -237,9 +215,11 @@ if not files:
 with st.sidebar:
     st.title("📂 Watchlist Controls")
 
+    # FIX #1: Add st.rerun() so switching watchlist auto-refreshes without manual button click
     def _on_file_change():
-        """Auto-clear cache when user switches watchlist — no manual refresh needed."""
+        """Auto-clear cache AND rerun when user switches watchlist."""
         st.cache_data.clear()
+        st.rerun()
 
     selected_file = st.selectbox(
         "Select Watchlist", files,
@@ -259,12 +239,11 @@ with st.sidebar:
 
     name_map  = load_name_map(file_path)
     _raw_prices = load_prices(file_path)
-    prices_df   = apply_name_map(_raw_prices, name_map)   # fresh copy, never mutates cache
+    prices_df   = apply_name_map(_raw_prices, name_map)
     all_stocks  = sorted(prices_df.columns.tolist())
 
     st.markdown("---")
 
-    # FIX #2: Dynamic key resets multiselect when toggle flips
     select_all      = st.toggle("Select All Stocks", value=True)
     current_default = all_stocks if select_all else []
     selected_stocks = st.multiselect(
@@ -273,14 +252,12 @@ with st.sidebar:
         default=current_default,
         key=f"stocks_{select_all}",
     )
-    # FIX #2 (cont.): Show selection count
     if selected_stocks:
         st.caption(f"✅ {len(selected_stocks)} of {len(all_stocks)} stocks selected")
 
     available_years = sorted(prices_df.index.year.unique(), reverse=True)
     selected_years  = st.multiselect("Years", available_years, default=available_years[:2])
 
-    # FIX #8: Non-contiguous year warning in sidebar
     if len(selected_years) > 1 and non_contiguous_years(selected_years):
         st.warning(
             "⚠️ **Non-contiguous years selected.**\n\n"
@@ -288,7 +265,6 @@ with st.sidebar:
             "this will overstate annualised returns. Use consecutive years for accurate CAGR."
         )
 
-    # FIX #13: Benchmark input
     st.markdown("---")
     st.markdown("**📌 Benchmark (optional)**")
     benchmark_label = st.text_input(
@@ -352,7 +328,6 @@ with c3:
         unsafe_allow_html=True,
     )
 
-# FIX #7: Active filter summary badges
 year_str   = ", ".join(str(y) for y in sorted(selected_years))
 bm_badge   = f'<span class="filter-badge">📌 {benchmark}</span>' if benchmark else ""
 badge_html = (
@@ -366,7 +341,6 @@ badge_html = (
 st.markdown(badge_html, unsafe_allow_html=True)
 st.markdown("<br>", unsafe_allow_html=True)
 
-# FIX #10: Add avg volatility to top-level metrics (4 columns)
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("🏆 Top Performer",       f"{df_sum.iloc[0]['Return %']:.1f}%",  f"Stock: {df_sum.iloc[0]['Ticker']}")
 m2.metric("📈 Avg Return",          f"{df_sum['Return %'].mean():.1f}%",   "Selection average")
@@ -397,7 +371,6 @@ with t1:
 
     with v1:
         st.subheader("🔥 Performance Ranking")
-        # FIX #5: Colour by positive / negative direction — no redundant continuous scale
         bar_df = df_sum.copy()
         bar_df["Direction"] = bar_df["Return %"].apply(lambda x: "Positive ▲" if x >= 0 else "Negative ▼")
         fig_bar = px.bar(
@@ -412,7 +385,6 @@ with t1:
     with v2:
         st.subheader("📈 Relative Price Movement")
         fig_price = px.line(filtered_prices, template="plotly_white")
-        # FIX #13: Overlay benchmark if configured
         if benchmark and benchmark in prices_df.columns:
             bm_series = prices_df[benchmark][prices_df.index.year.isin(selected_years)]
             fig_price.add_trace(go.Scatter(
@@ -424,7 +396,6 @@ with t1:
 
     st.divider()
 
-    # Normalised chart rebased to 100 + benchmark
     st.subheader("🔢 Normalised Chart (Rebased to 100)")
     st.caption(
         "💡 **What is Rebased Price?** Every stock starts at 100 on the first day of the selected period — "
@@ -435,7 +406,6 @@ with t1:
     norm        = filtered_prices.div(first_valid) * 100
     fig_norm    = px.line(norm, template="plotly_white", labels={"value": "Rebased Price (100 = start)"})
 
-    # FIX #13: Add normalised benchmark
     if benchmark and benchmark in prices_df.columns:
         bm_series = prices_df[benchmark][prices_df.index.year.isin(selected_years)].dropna()
         if not bm_series.empty:
@@ -449,7 +419,6 @@ with t1:
 
     st.divider()
 
-    # Rolling 12M — full series, not year-filtered (FIX #10)
     st.subheader("🕵️ Rolling 12M Return Consistency")
     roll_raw = load_sheet(file_path, SHEET_ROLLING_12M)
     if roll_raw is not None:
@@ -457,10 +426,9 @@ with t1:
         roll_raw = apply_name_map(roll_raw, name_map)
         cols_avail = [c for c in selected_stocks if c in roll_raw.columns]
         if cols_avail:
-            display_roll = roll_raw[cols_avail]   # intentionally no year filter
+            display_roll = roll_raw[cols_avail]
             fig_roll = px.line(display_roll, template="plotly_white",
                                labels={"value": "12M Rolling Return (%)"})
-            # FIX #4: Labelled zero-line
             fig_roll.add_hline(
                 y=0, line_dash="dash", line_color="red",
                 annotation_text="Breakeven (0%)",
@@ -480,11 +448,10 @@ with t2:
     st.subheader("Detailed Performance Metrics")
     display_df = df_sum.drop(columns=["_years"])
 
-    # FIX #10: Volatility and Sharpe columns with colour gradients
     st.dataframe(
         display_df.style
             .background_gradient(subset=["Return %", "CAGR %"], cmap="RdYlGn")
-            .background_gradient(subset=["Ann. Vol %"],          cmap="RdYlGn_r")  # lower vol = greener
+            .background_gradient(subset=["Ann. Vol %"],          cmap="RdYlGn_r")
             .background_gradient(subset=["Sharpe"],              cmap="RdYlGn")
             .format({
                 "Return %":   "{:.2f}%",
@@ -497,7 +464,6 @@ with t2:
         hide_index=True,
     )
 
-    # FIX #12: Full NxN correlation heatmap
     st.divider()
     st.subheader("🔗 Full Correlation Matrix")
     if len(selected_stocks) > 1:
@@ -514,7 +480,6 @@ with t2:
         fig_heatmap.update_layout(coloraxis_colorbar_title="r")
         st.plotly_chart(fig_heatmap, use_container_width=True)
     else:
-        # FIX #6: Explicit empty-state message
         st.info("ℹ️ Select 2 or more stocks to enable the correlation heatmap.")
 
 
@@ -549,30 +514,34 @@ with t4:
     q_data = load_sheet(file_path, SHEET_QUARTERLY)
     if q_data is not None:
         q_data = apply_name_map(q_data, name_map)
-        q_data.index = parse_quarterly_index(q_data.index)   # FIX #3
+        q_data.index = parse_quarterly_index(q_data.index)
         q_data = q_data[q_data.index.notna()]
 
         cols_avail = [c for c in selected_stocks if c in q_data.columns]
         if cols_avail:
             f_q = q_data[q_data.index.year.isin(selected_years)][cols_avail].sort_index(ascending=False)
 
-            # QUARTERLY FIX: Ensure ALL quarters for the selected years are present
-            # even if the engine didn't write a row for quarters with partial/no data.
-            # Build the complete expected quarter grid and reindex into it.
+            # FIX #2: Cap the expected quarter grid at the CURRENT quarter — never show future quarters.
+            # e.g. if today is in Q1 2026, grid ends at Q1 2026, not Q4 2026.
+            today_quarter_start = current_quarter_start()
+            grid_end = min(
+                pd.Timestamp(year=max(selected_years), month=10, day=1),  # Q4 start of max year
+                today_quarter_start,                                        # current quarter start
+            )
+
             expected_quarters = pd.period_range(
                 start=f"{min(selected_years)}Q1",
-                end=f"{max(selected_years)}Q4",
+                end=pd.Period(grid_end, freq="Q"),
                 freq="Q",
             )
             expected_idx = expected_quarters.to_timestamp()
-            # Reindex so missing quarters appear as NaN rows (not silently dropped)
             f_q = f_q.reindex(expected_idx.sort_values(ascending=False))
             f_q.index = f_q.index.to_period("Q").astype(str)
 
             st.dataframe(
                 f_q.style
                     .background_gradient(cmap="RdYlGn", axis=None)
-                    .format("{:.2f}%", na_rep="—"),   # show dash for missing quarters
+                    .format("{:.2f}%", na_rep="—"),
                 use_container_width=True,
             )
             missing_count = f_q.isna().all(axis=1).sum()
@@ -614,7 +583,6 @@ with t5:
                 if target_indices.empty:
                     st.warning("⚠️ No data found for the selected months.")
                 else:
-                    # FIX #1: Slice up to last target date before pct_change
                     daily_ret_full = (
                         prices_df[selected_stocks]
                         .loc[:target_indices[-1]]
@@ -622,7 +590,6 @@ with t5:
                     )
                     day_view = daily_ret_full.loc[target_indices].copy()
 
-                    # FIX #9: Compounded total return (not arithmetic sum)
                     summary_df = pd.DataFrame({
                         "Total Return (%)":   ((1 + day_view / 100).prod() - 1) * 100,
                         "Best Day (%)":       day_view.max(),
@@ -692,7 +659,6 @@ with t5:
                     period_prices.index = period_prices.index.strftime("%Y-%m-%d")
                     st.dataframe(period_prices.sort_index(ascending=False), use_container_width=True)
 
-                    # FIX #8: Dynamic download keys — no duplicate-key crash on month change
                     month_key = "_".join(sel_months)
                     st.divider()
                     dl1, dl2 = st.columns(2)
@@ -725,7 +691,6 @@ with t5:
 with t6:
     st.subheader("🔍 Individual Stock Deep-Dive")
 
-    # FIX #3 (UI): Compare mode selector
     dd_col1, dd_col2 = st.columns([2, 1])
     with dd_col1:
         target_stock = st.selectbox("Primary stock:", selected_stocks, key="deep_dive_ticker")
@@ -742,13 +707,11 @@ with t6:
             ma50  = full_series.rolling(50).mean().reindex(s_data.index)
             ma200 = full_series.rolling(200).mean().reindex(s_data.index)
 
-            # FIX #7: Explicit validity check — only plot MA lines when they exist
             ma50_valid  = ma50.dropna()
             ma200_valid = ma200.dropna()
             last_ma50   = ma50_valid.iloc[-1]  if not ma50_valid.empty  else None
             last_ma200  = ma200_valid.iloc[-1] if not ma200_valid.empty else None
 
-            # MA crossover signal
             if last_ma50 is not None and last_ma200 is not None:
                 cross_series = (ma50 > ma200).dropna()
                 if not cross_series.empty:
@@ -769,7 +732,6 @@ with t6:
                     "Extend your year filter to enable MA signals."
                 )
 
-            # FIX #11: Both period and all-time drawdown computed and displayed
             dd_period  = (s_data / s_data.cummax() - 1) * 100
             dd_alltime = (full_series / full_series.cummax() - 1) * 100
 
@@ -783,7 +745,6 @@ with t6:
             c4.metric("Period Max Drawdown",   f"{dd_period.min():.2f}%",    delta_color="inverse")
             c5.metric("All-Time Max Drawdown", f"{dd_alltime.min():.2f}%",   delta_color="inverse")
 
-            # Technical chart with optional compare overlay
             fig_main = go.Figure()
             fig_main.add_trace(go.Scatter(
                 x=s_data.index, y=s_data,
@@ -799,7 +760,6 @@ with t6:
                     x=ma200.index, y=ma200, name="200 DMA",
                     line=dict(dash="dot", color="red", width=1.5),
                 ))
-            # FIX #3 (UI) compare mode overlay — price scaled to same base
             if compare_stock and compare_stock in filtered_prices.columns:
                 cs_data = filtered_prices[compare_stock].dropna()
                 cs_scaled = cs_data / cs_data.iloc[0] * s_data.iloc[0]
@@ -821,7 +781,6 @@ with t6:
 
             col_l, col_r = st.columns(2)
             with col_l:
-                # FIX #11: Period drawdown filled, all-time as dotted overlay
                 fig_dd = go.Figure()
                 fig_dd.add_trace(go.Scatter(
                     x=dd_period.index, y=dd_period,
@@ -841,7 +800,6 @@ with t6:
                 st.plotly_chart(fig_dd, use_container_width=True)
 
             with col_r:
-                # FIX #10: Show annualised vol in chart title; add mean vline
                 fig_hist = px.histogram(
                     daily_ret_stock, nbins=40,
                     title=f"Daily Return Distribution — Ann. Vol: {period_vol:.1f}%",
@@ -854,7 +812,6 @@ with t6:
                 )
                 st.plotly_chart(fig_hist, use_container_width=True)
 
-            # Per-stock correlation bar
             if len(selected_stocks) > 1:
                 st.subheader(f"🔗 {target_stock} — Correlation with Other Stocks")
                 corr_matrix = compute_corr(filtered_prices)
@@ -869,5 +826,4 @@ with t6:
                     )
                     st.plotly_chart(fig_corr, use_container_width=True)
             else:
-                # FIX #6: Explicit empty-state instead of silent disappearance
                 st.info("ℹ️ Select 2 or more stocks to enable correlation analysis.")
