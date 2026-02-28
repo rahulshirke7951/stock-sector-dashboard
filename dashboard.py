@@ -277,48 +277,39 @@ with t5:
                     use_container_width=True
                 )
 
-                # --- 8. EXPORT OPTION ---
-                st.divider()
-                csv_data = day_view.to_csv().encode('utf-8')
-                st.download_button(
-                    label="📥 Download Daily Returns for Selected Period (CSV)", 
-                    data=csv_data, 
-                    file_name=f"returns_{'_'.join(sel_months)}.csv", 
-                    mime='text/csv', 
-                    use_container_width=True
-                )
-                
-        else:
-            st.info("💡 Please select at least one month in the selector above to begin analysis.")
-
-    except Exception as e:
-        st.error(f"⚠️ Calculation Error: {e}")
-
-
-                # --- 9. PRICE HISTORY SECTION (NEW) ---
+                # --- 8. PRICE HISTORY SECTION (The fix is here) ---
                 st.subheader("📈 Absolute Price History (Selected Period)")
                 
-                # Filter the raw prices for the selected months and stocks
+                # Filter raw prices using the same target_indices logic
                 period_price_history = prices_df.loc[target_indices, selected_stocks].copy()
                 period_price_history.index = period_price_history.index.strftime('%Y-%m-%d')
-                
-                # Display a clean version of the prices
+
                 st.dataframe(
                     period_price_history.sort_index(ascending=False), 
                     use_container_width=True
                 )
-                
-                # Download button for Price History
-                csv_prices = period_price_history.to_csv().encode('utf-8')
-                st.download_button(
-                    label="📥 Download Price History for Selected Period (CSV)", 
-                    data=csv_prices, 
-                    file_name=f"prices_{'_'.join(sel_months)}.csv", 
-                    mime='text/csv', 
-                    use_container_width=True,
-                    key="dl_prices_t5" # Unique key to avoid conflict
-                )
 
+                # --- 9. DOWNLOAD BUTTONS ---
+                st.divider()
+                c_dl1, c_dl2 = st.columns(2)
+                with c_dl1:
+                    st.download_button(
+                        label="📥 Download Daily Returns (CSV)", 
+                        data=day_view.to_csv().encode('utf-8'), 
+                        file_name=f"returns_{'_'.join(sel_months)}.csv", 
+                        mime='text/csv', 
+                        use_container_width=True,
+                        key="dl_ret_t5"
+                    )
+                with c_dl2:
+                    st.download_button(
+                        label="📥 Download Price History (CSV)", 
+                        data=period_price_history.to_csv().encode('utf-8'), 
+                        file_name=f"prices_{'_'.join(sel_months)}.csv", 
+                        mime='text/csv', 
+                        use_container_width=True,
+                        key="dl_prices_t5"
+                    )
 with t6:
     st.subheader("🔍 Individual Stock Deep-Dive")
     target_stock = st.selectbox("Pick a stock to analyze in detail:", selected_stocks, key="deep_dive_ticker")
