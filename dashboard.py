@@ -113,6 +113,11 @@ def load_sheet(file_path: str, sheet: str) -> pd.DataFrame | None:
     except Exception:
         return None
 
+@st.cache_data(show_spinner=False)
+def compute_corr(_df: pd.DataFrame) -> pd.DataFrame:
+    """Cache correlation matrix to avoid recomputing on every rerun."""
+    return _df.pct_change().dropna().corr()
+
 
 # ─────────────────────────────────────────────
 # HELPERS
@@ -120,7 +125,6 @@ def load_sheet(file_path: str, sheet: str) -> pd.DataFrame | None:
 def calc_summary(filtered_df: pd.DataFrame) -> pd.DataFrame:
     """
     Per-stock return / CAGR using each stock's own valid date range.
-    Fixes the shared-years_val bug.
     """
     rows = []
     for ticker in filtered_df.columns:
@@ -132,13 +136,37 @@ def calc_summary(filtered_df: pd.DataFrame) -> pd.DataFrame:
         ret   = ((col.iloc[-1] / col.iloc[0]) - 1) * 100
         cagr  = (((col.iloc[-1] / col.iloc[0]) ** (1 / yrs)) - 1) * 100
         rows.append({
-            "Ticker":    ticker,
-            "Return %":  ret,
-            "CAGR %":    cagr,
-            "Latest":    col.iloc[-1],
-            "_years":    yrs,
+            "Ticker":   ticker,
+            "Return %": ret,
+            "CAGR %":   cagr,
+            "Latest":   col.iloc[-1],
+            "_years":   yrs,
         })
     return pd.DataFrame(rows).sort_values("Return %", ascending=False)
+
+
+def parse_quarterly_index(raw_index) -> pd.DatetimeIndex:
+    """
+    Robustly parse quarterly period strings like '2024Q1', 'Q1-2024', '2024-Q1'.
+    Falls back to original on failure.
+    """
+    parsed = []
+    for x in raw_index:
+        s = str(x).strip()
+        try:
+            # Handle formats: 2024Q1, 2024-Q1, Q1-2024, Q1 2024
+            s_norm = s.replace("-", "").replace(" ", "")
+            if s_norm[:1] == "Q":          # Q12024
+                q = int(s_norm[1])
+                y = int(s_norm[2:])
+            else:                          # 2024Q1
+                y = int(s_norm[:4])
+                q = int(s_norm[5])
+            month = (q - 1) * 3 + 1
+            parsed.append(pd.Timestamp(year=y, month=month, day=1))
+        except Exception:
+            parsed.append(pd.NaT)
+    return pd.DatetimeIndex(parsed)
 
 
 # ─────────────────────────────────────────────
@@ -173,9 +201,16 @@ with st.sidebar:
     all_stocks = sorted(prices_df.columns.tolist())
 
     st.markdown("---")
-    select_all      = st.toggle("Select All Stocks", value=True)
+
+    # FIX #2: Dynamic key so toggle state resets the multiselect properly
+    select_all = st.toggle("Select All Stocks", value=True)
     current_default = all_stocks if select_all else []
-    selected_stocks = st.multiselect("Active Stocks", all_stocks, default=current_default)
+    selected_stocks = st.multiselect(
+        "Active Stocks",
+        all_stocks,
+        default=current_default,
+        key=f"stocks_{select_all}",   # key changes when toggle flips → widget resets
+    )
 
     available_years = sorted(prices_df.index.year.unique(), reverse=True)
     selected_years  = st.multiselect("Years", available_years, default=available_years[:2])
@@ -236,9 +271,10 @@ with c3:
 st.markdown("<br>", unsafe_allow_html=True)
 
 m1, m2, m3 = st.columns(3)
-m1.metric("🏆 Top Performer",       f"{df_sum.iloc[0]['Return %']:.1f}%",  f"Stock: {df_sum.iloc[0]['Ticker']}")
-m2.metric("📈 Selection Avg Return", f"{df_sum['Return %'].mean():.1f}%",  "Overall Portfolio")
-m3.metric("📅 Avg Annualised CAGR",  f"{df_sum['CAGR %'].mean():.1f}%",    f"Over ~{avg_years:.1f} yrs (per stock)")
+m1.metric("🏆 Top Performer",          f"{df_sum.iloc[0]['Return %']:.1f}%",  f"Stock: {df_sum.iloc[0]['Ticker']}")
+m2.metric("📈 Selection Avg Return",   f"{df_sum['Return %'].mean():.1f}%",   "Overall Portfolio")
+# FIX #9: Clearer label for avg years metric
+m3.metric("📅 Avg Annualised CAGR",    f"{df_sum['CAGR %'].mean():.1f}%",     f"Avg holding ~{avg_years:.1f} yrs/stock")
 
 st.divider()
 
@@ -281,18 +317,24 @@ with t1:
     st.subheader("🔢 Normalised Chart (Rebased to 100)")
     first_valid = filtered_prices.apply(lambda c: c.dropna().iloc[0] if c.dropna().shape[0] else None)
     norm = filtered_prices.div(first_valid) * 100
-    st.plotly_chart(px.line(norm, template="plotly_white", labels={"value": "Rebased Price (100 = start)"}), use_container_width=True)
+    st.plotly_chart(
+        px.line(norm, template="plotly_white", labels={"value": "Rebased Price (100 = start)"}),
+        use_container_width=True,
+    )
 
     st.divider()
+
+    # FIX #10: Rolling 12M — show full series, don't filter by selected_years
     st.subheader("🕵️ Rolling 12M Return Consistency")
     roll_raw = load_sheet(file_path, SHEET_ROLLING_12M)
     if roll_raw is not None:
         roll_raw.index = pd.to_datetime(roll_raw.index)
         roll_raw.rename(columns=name_map, inplace=True)
-        # Only show stocks present in both
         cols_avail = [c for c in selected_stocks if c in roll_raw.columns]
         if cols_avail:
-            display_roll = roll_raw[roll_raw.index.year.isin(selected_years)][cols_avail]
+            # Show full rolling series — year filter intentionally removed here
+            # because rolling 12M naturally spans year boundaries
+            display_roll = roll_raw[cols_avail]
             fig_roll = px.line(display_roll, template="plotly_white")
             fig_roll.add_hline(y=0, line_dash="dash", line_color="red")
             st.plotly_chart(fig_roll, use_container_width=True)
@@ -342,10 +384,11 @@ with t4:
     q_data = load_sheet(file_path, SHEET_QUARTERLY)
     if q_data is not None:
         q_data.rename(columns=name_map, inplace=True)
-        try:
-            q_data.index = pd.to_datetime([str(x).replace("Q", "-") for x in q_data.index])
-        except Exception:
-            pass
+
+        # FIX #3: Robust quarterly index parsing
+        q_data.index = parse_quarterly_index(q_data.index)
+        q_data = q_data[q_data.index.notna()]  # drop unparseable rows
+
         cols_avail = [c for c in selected_stocks if c in q_data.columns]
         if cols_avail:
             f_q = q_data[q_data.index.year.isin(selected_years)][cols_avail].sort_index(ascending=False)
@@ -367,117 +410,135 @@ with t5:
         reverse=True,
     )
     default_month = [available_months[0]] if available_months else []
-    sel_months = st.multiselect("📅 Select Month(s) to Analyse", available_months, default=default_month, key="d_month_selector")
+    sel_months = st.multiselect(
+        "📅 Select Month(s) to Analyse",
+        available_months,
+        default=default_month,
+        key="d_month_selector",
+    )
 
     st.divider()
 
     if not sel_months:
         st.info("ℹ️ Select at least one month above.")
     else:
-        try:
-            # Use prices_df (full) for correct pct_change on boundary days,
-            # but restrict COLUMNS to selected_stocks only — fixes the consistency bug
-            daily_ret_full = prices_df[selected_stocks].pct_change() * 100
-            target_indices = prices_df[prices_df.index.strftime("%Y-%m").isin(sel_months)].index
+        with st.spinner("Crunching daily returns…"):
+            try:
+                target_indices = prices_df[
+                    prices_df.index.strftime("%Y-%m").isin(sel_months)
+                ].index
 
-            if target_indices.empty:
-                st.warning("⚠️ No data found for the selected months.")
-            else:
-                day_view = daily_ret_full.loc[target_indices].copy()
-
-                summary_df = pd.DataFrame({
-                    "Total Return (%)":   day_view.sum(),
-                    "Best Day (%)":       day_view.max(),
-                    "Worst Day (%)":      day_view.min(),
-                    "Avg Daily Move (%)": day_view.mean(),
-                }).sort_values("Total Return (%)", ascending=False)
-
-                top_2_names = summary_df.head(2).index.tolist()
-
-                # Insight tiles
-                overall_winner = summary_df.index[0]
-                overall_val    = summary_df.iloc[0]["Total Return (%)"]
-                max_val        = day_view.max().max()
-                best_s         = day_view.max().idxmax()
-                best_d         = day_view[best_s].idxmax().strftime("%d %b %Y")
-                min_val        = day_view.min().min()
-                worst_s        = day_view.min().idxmin()
-                worst_d        = day_view[worst_s].idxmin().strftime("%d %b %Y")
-
-                ti1, ti2, ti3 = st.columns(3)
-                ti1.metric("🥇 Period Leader",    f"{overall_val:.2f}%", overall_winner)
-                ti2.metric("🚀 Top Daily Move",   f"{max_val:.2f}%",     f"{best_s} ({best_d})")
-                ti3.metric("📉 Deepest Day Cut",  f"{min_val:.2f}%",     f"{worst_s} ({worst_d})")
-
-                # Summary table
-                st.subheader("📊 Performance Ranking (Selected Period)")
-                st.dataframe(
-                    summary_df.style.background_gradient(cmap="YlGn", subset=["Total Return (%)"]).format("{:.2f}%"),
-                    use_container_width=True,
-                )
-
-                # Trend chart
-                chart_col, ctrl_col = st.columns([4, 1])
-                with ctrl_col:
-                    st.write("🔍 **Chart Filters**")
-                    sel_stocks_chart = st.multiselect(
-                        "Select Stocks:", selected_stocks, default=top_2_names, key="t5_trend_chart_stocks"
+                if target_indices.empty:
+                    st.warning("⚠️ No data found for the selected months.")
+                else:
+                    # FIX #1: Slice up to last target date before pct_change
+                    # so the first day of the selected month gets the correct return
+                    # (computed from the prior trading day, which may be outside the filter)
+                    daily_ret_full = (
+                        prices_df[selected_stocks]
+                        .loc[:target_indices[-1]]
+                        .pct_change() * 100
                     )
-                    st.caption("Winners auto-selected.")
+                    day_view = daily_ret_full.loc[target_indices].copy()
 
-                with chart_col:
-                    if sel_stocks_chart:
-                        st.subheader(f"🕵️ Compounded Growth ({', '.join(sel_months)})")
-                        chart_data     = day_view[sel_stocks_chart].copy()
-                        cum_trend_pct  = ((1 + chart_data / 100).cumprod() - 1) * 100
-                        fig_trend      = px.line(
-                            cum_trend_pct, template="plotly_white",
-                            labels={"value": "Growth %", "index": "Date"},
-                            markers=True, height=450,
+                    summary_df = pd.DataFrame({
+                        "Total Return (%)":   day_view.sum(),
+                        "Best Day (%)":       day_view.max(),
+                        "Worst Day (%)":      day_view.min(),
+                        "Avg Daily Move (%)": day_view.mean(),
+                    }).sort_values("Total Return (%)", ascending=False)
+
+                    top_2_names = summary_df.head(2).index.tolist()
+
+                    # Insight tiles
+                    overall_winner = summary_df.index[0]
+                    overall_val    = summary_df.iloc[0]["Total Return (%)"]
+                    max_val        = day_view.max().max()
+                    best_s         = day_view.max().idxmax()
+                    best_d         = day_view[best_s].idxmax().strftime("%d %b %Y")
+                    min_val        = day_view.min().min()
+                    worst_s        = day_view.min().idxmin()
+                    worst_d        = day_view[worst_s].idxmin().strftime("%d %b %Y")
+
+                    ti1, ti2, ti3 = st.columns(3)
+                    ti1.metric("🥇 Period Leader",   f"{overall_val:.2f}%", overall_winner)
+                    ti2.metric("🚀 Top Daily Move",  f"{max_val:.2f}%",     f"{best_s} ({best_d})")
+                    ti3.metric("📉 Deepest Day Cut", f"{min_val:.2f}%",     f"{worst_s} ({worst_d})")
+
+                    # Summary table
+                    st.subheader("📊 Performance Ranking (Selected Period)")
+                    st.dataframe(
+                        summary_df.style
+                            .background_gradient(cmap="YlGn", subset=["Total Return (%)"])
+                            .format("{:.2f}%"),
+                        use_container_width=True,
+                    )
+
+                    # Trend chart
+                    chart_col, ctrl_col = st.columns([4, 1])
+                    with ctrl_col:
+                        st.write("🔍 **Chart Filters**")
+                        sel_stocks_chart = st.multiselect(
+                            "Select Stocks:", selected_stocks, default=top_2_names, key="t5_trend_chart_stocks"
                         )
-                        fig_trend.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.7)
-                        fig_trend.update_layout(hovermode="x unified", margin=dict(l=0, r=0, t=10, b=0))
-                        st.plotly_chart(fig_trend, use_container_width=True)
+                        st.caption("Winners auto-selected.")
 
-                # Raw daily heatmap
-                st.subheader("📋 Raw Daily Returns (%)")
-                table_display = day_view.copy().sort_index(ascending=False)
-                table_display.index = table_display.index.strftime("%Y-%m-%d (%a)")
-                st.dataframe(
-                    table_display.style.background_gradient(cmap="RdYlGn", axis=None).format("{:.2f}%"),
-                    use_container_width=True,
-                )
+                    with chart_col:
+                        if sel_stocks_chart:
+                            st.subheader(f"🕵️ Compounded Growth ({', '.join(sel_months)})")
+                            chart_data    = day_view[sel_stocks_chart].copy()
+                            cum_trend_pct = ((1 + chart_data / 100).cumprod() - 1) * 100
+                            fig_trend     = px.line(
+                                cum_trend_pct, template="plotly_white",
+                                labels={"value": "Growth %", "index": "Date"},
+                                markers=True, height=450,
+                            )
+                            fig_trend.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.7)
+                            fig_trend.update_layout(hovermode="x unified", margin=dict(l=0, r=0, t=10, b=0))
+                            st.plotly_chart(fig_trend, use_container_width=True)
 
-                # Price history
-                st.subheader("📈 Absolute Price History (Selected Period)")
-                period_prices = prices_df.loc[target_indices, selected_stocks].copy()
-                period_prices.index = period_prices.index.strftime("%Y-%m-%d")
-                st.dataframe(period_prices.sort_index(ascending=False), use_container_width=True)
-
-                # Downloads
-                st.divider()
-                dl1, dl2 = st.columns(2)
-                with dl1:
-                    st.download_button(
-                        "📥 Download Daily Returns (CSV)",
-                        data=day_view.to_csv().encode("utf-8"),
-                        file_name=f"returns_{'_'.join(sel_months)}.csv",
-                        mime="text/csv",
+                    # Raw daily heatmap
+                    st.subheader("📋 Raw Daily Returns (%)")
+                    table_display = day_view.copy().sort_index(ascending=False)
+                    table_display.index = table_display.index.strftime("%Y-%m-%d (%a)")
+                    st.dataframe(
+                        table_display.style
+                            .background_gradient(cmap="RdYlGn", axis=None)
+                            .format("{:.2f}%"),
                         use_container_width=True,
-                        key="dl_ret_t5",
-                    )
-                with dl2:
-                    st.download_button(
-                        "📥 Download Price History (CSV)",
-                        data=period_prices.to_csv().encode("utf-8"),
-                        file_name=f"prices_{'_'.join(sel_months)}.csv",
-                        mime="text/csv",
-                        use_container_width=True,
-                        key="dl_prices_t5",
                     )
 
-        except Exception as e:
-            st.error(f"⚠️ Tab 5 Error: {e}")
+                    # Price history
+                    st.subheader("📈 Absolute Price History (Selected Period)")
+                    period_prices = prices_df.loc[target_indices, selected_stocks].copy()
+                    period_prices.index = period_prices.index.strftime("%Y-%m-%d")
+                    st.dataframe(period_prices.sort_index(ascending=False), use_container_width=True)
+
+                    # FIX #8: Dynamic keys to avoid duplicate-key crash on month change
+                    month_key = "_".join(sel_months)
+                    st.divider()
+                    dl1, dl2 = st.columns(2)
+                    with dl1:
+                        st.download_button(
+                            "📥 Download Daily Returns (CSV)",
+                            data=day_view.to_csv().encode("utf-8"),
+                            file_name=f"returns_{month_key}.csv",
+                            mime="text/csv",
+                            use_container_width=True,
+                            key=f"dl_ret_{month_key}",
+                        )
+                    with dl2:
+                        st.download_button(
+                            "📥 Download Price History (CSV)",
+                            data=period_prices.to_csv().encode("utf-8"),
+                            file_name=f"prices_{month_key}.csv",
+                            mime="text/csv",
+                            use_container_width=True,
+                            key=f"dl_prices_{month_key}",
+                        )
+
+            except Exception as e:
+                st.error(f"⚠️ Tab 5 Error: {e}")
 
 
 # ── TAB 6 ──────────────────────────────────────
@@ -486,77 +547,107 @@ with t6:
     target_stock = st.selectbox("Pick a stock to analyse:", selected_stocks, key="deep_dive_ticker")
 
     if target_stock:
-        s_data      = filtered_prices[target_stock].dropna()
-        full_series = prices_df[target_stock].dropna()
+        with st.spinner(f"Loading analysis for {target_stock}…"):
+            s_data      = filtered_prices[target_stock].dropna()
+            full_series = prices_df[target_stock].dropna()
 
-        # MAs computed on full series, then aligned — use reindex to avoid silent drops
-        ma50  = full_series.rolling(50).mean().reindex(s_data.index)
-        ma200 = full_series.rolling(200).mean().reindex(s_data.index)
+            # MAs computed on full series, then aligned via reindex
+            ma50  = full_series.rolling(50).mean().reindex(s_data.index)
+            ma200 = full_series.rolling(200).mean().reindex(s_data.index)
 
-        last_ma50  = ma50.dropna().iloc[-1]  if not ma50.dropna().empty  else None
-        last_ma200 = ma200.dropna().iloc[-1] if not ma200.dropna().empty else None
+            # FIX #7: Explicit NaN check with clear user feedback
+            ma50_valid  = ma50.dropna()
+            ma200_valid = ma200.dropna()
+            last_ma50   = ma50_valid.iloc[-1]  if not ma50_valid.empty  else None
+            last_ma200  = ma200_valid.iloc[-1] if not ma200_valid.empty else None
 
-        # Signal + days-since-crossover
-        if last_ma50 is not None and last_ma200 is not None:
-            cross_series = (ma50 > ma200).dropna()
-            if cross_series.empty:
-                st.info("ℹ️ Not enough data to determine crossover.")
-            else:
-                current_bullish = cross_series.iloc[-1]
-                # Find last regime change
-                regime_change   = cross_series[cross_series != cross_series.shift(1)]
-                days_since      = (s_data.index[-1] - regime_change.index[-1]).days if len(regime_change) > 0 else None
-                days_txt        = f" · {days_since}d ago" if days_since is not None else ""
-                if current_bullish:
-                    st.success(f"🚀 **Bullish Trend:** Golden Cross active{days_txt}")
+            # Signal + days-since-crossover
+            if last_ma50 is not None and last_ma200 is not None:
+                cross_series = (ma50 > ma200).dropna()
+                if cross_series.empty:
+                    st.info("ℹ️ Not enough data to determine crossover.")
                 else:
-                    st.error(f"⚠️ **Bearish Trend:** Death Cross active{days_txt}")
-        else:
-            st.info("ℹ️ Insufficient MA data for signal.")
+                    current_bullish = cross_series.iloc[-1]
+                    regime_change   = cross_series[cross_series != cross_series.shift(1)]
+                    days_since      = (s_data.index[-1] - regime_change.index[-1]).days if len(regime_change) > 0 else None
+                    days_txt        = f" · {days_since}d ago" if days_since is not None else ""
+                    if current_bullish:
+                        st.success(f"🚀 **Bullish Trend:** Golden Cross active{days_txt}")
+                    else:
+                        st.error(f"⚠️ **Bearish Trend:** Death Cross active{days_txt}")
+            else:
+                # FIX #7: Specific warning explaining why MA is unavailable
+                missing = []
+                if last_ma50  is None: missing.append("50 DMA (needs 50+ data points)")
+                if last_ma200 is None: missing.append("200 DMA (needs 200+ data points)")
+                st.warning(f"⚠️ Insufficient data for: {', '.join(missing)}. Extend the year filter to enable MA signals.")
 
-        # Metric cards
-        dd   = (s_data / s_data.cummax() - 1) * 100
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Current Price",  f"₹{s_data.iloc[-1]:.2f}")
-        c2.metric("Period Return",  f"{((s_data.iloc[-1]/s_data.iloc[0])-1)*100:.2f}%")
-        c3.metric("Max Price",      f"₹{s_data.max():.2f}", f"Peak: {s_data.idxmax().strftime('%d %b %Y')}")
-        c4.metric("Max Drawdown",   f"{dd.min():.2f}%", delta_color="inverse")
+            # Metric cards
+            dd   = (s_data / s_data.cummax() - 1) * 100
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Current Price",  f"₹{s_data.iloc[-1]:.2f}")
+            c2.metric("Period Return",  f"{((s_data.iloc[-1]/s_data.iloc[0])-1)*100:.2f}%")
+            c3.metric("Max Price",      f"₹{s_data.max():.2f}", f"Peak: {s_data.idxmax().strftime('%d %b %Y')}")
+            c4.metric("Max Drawdown",   f"{dd.min():.2f}%", delta_color="inverse")
 
-        # Technical chart
-        fig_main = go.Figure()
-        fig_main.add_trace(go.Scatter(x=s_data.index, y=s_data,     name=target_stock, line=dict(color=BRAND_DARK, width=2)))
-        fig_main.add_trace(go.Scatter(x=ma50.index,   y=ma50,       name="50 DMA",     line=dict(dash="dash",  color="orange", width=1.5)))
-        fig_main.add_trace(go.Scatter(x=ma200.index,  y=ma200,      name="200 DMA",    line=dict(dash="dot",   color="red",    width=1.5)))
-        fig_main.add_annotation(
-            x=s_data.idxmax(), y=s_data.max(),
-            text="Cycle Peak", showarrow=True, arrowhead=2, font=dict(color=BRAND_DARK),
-        )
-        fig_main.update_layout(template="plotly_white", title=f"{target_stock} — Technical Trend", hovermode="x unified")
-        st.plotly_chart(fig_main, use_container_width=True)
-
-        col_l, col_r = st.columns(2)
-        with col_l:
-            st.plotly_chart(
-                px.area(dd, title="Peak-to-Trough Drawdown (%)", template="plotly_white", color_discrete_sequence=["#ff4b4b"]),
-                use_container_width=True,
+            # Technical chart — only plot MAs when data exists (FIX #7)
+            fig_main = go.Figure()
+            fig_main.add_trace(go.Scatter(
+                x=s_data.index, y=s_data,
+                name=target_stock, line=dict(color=BRAND_DARK, width=2),
+            ))
+            if not ma50_valid.empty:
+                fig_main.add_trace(go.Scatter(
+                    x=ma50.index, y=ma50,
+                    name="50 DMA", line=dict(dash="dash", color="orange", width=1.5),
+                ))
+            if not ma200_valid.empty:
+                fig_main.add_trace(go.Scatter(
+                    x=ma200.index, y=ma200,
+                    name="200 DMA", line=dict(dash="dot", color="red", width=1.5),
+                ))
+            fig_main.add_annotation(
+                x=s_data.idxmax(), y=s_data.max(),
+                text="Cycle Peak", showarrow=True, arrowhead=2, font=dict(color=BRAND_DARK),
             )
-        with col_r:
-            daily_ret = s_data.pct_change() * 100
-            st.plotly_chart(
-                px.histogram(daily_ret, nbins=40, title="Daily Return Distribution (%)", template="plotly_white"),
-                use_container_width=True,
+            fig_main.update_layout(
+                template="plotly_white",
+                title=f"{target_stock} — Technical Trend",
+                hovermode="x unified",
             )
+            st.plotly_chart(fig_main, use_container_width=True)
 
-        # Correlation with other stocks (bonus insight)
-        if len(selected_stocks) > 1:
-            st.subheader(f"🔗 {target_stock} — Correlation with Other Selected Stocks")
-            corr_data = filtered_prices.pct_change().dropna()
-            corr_vals = corr_data.corr()[target_stock].drop(target_stock).sort_values(ascending=False)
-            fig_corr  = px.bar(
-                corr_vals, orientation="h", template="plotly_white",
-                color=corr_vals.values, color_continuous_scale="RdYlGn",
-                labels={"value": "Correlation", "index": "Stock"},
-                title=f"Return Correlation with {target_stock}",
-                range_color=[-1, 1],
-            )
-            st.plotly_chart(fig_corr, use_container_width=True)
+            col_l, col_r = st.columns(2)
+            with col_l:
+                st.plotly_chart(
+                    px.area(
+                        dd, title="Peak-to-Trough Drawdown (%)",
+                        template="plotly_white", color_discrete_sequence=["#ff4b4b"],
+                    ),
+                    use_container_width=True,
+                )
+            with col_r:
+                daily_ret = s_data.pct_change() * 100
+                st.plotly_chart(
+                    px.histogram(
+                        daily_ret, nbins=40,
+                        title="Daily Return Distribution (%)",
+                        template="plotly_white",
+                    ),
+                    use_container_width=True,
+                )
+
+            # FIX #5: Use cached correlation matrix
+            if len(selected_stocks) > 1:
+                st.subheader(f"🔗 {target_stock} — Correlation with Other Selected Stocks")
+                corr_matrix = compute_corr(filtered_prices)
+                if target_stock in corr_matrix.columns:
+                    corr_vals = corr_matrix[target_stock].drop(target_stock).sort_values(ascending=False)
+                    fig_corr  = px.bar(
+                        corr_vals, orientation="h", template="plotly_white",
+                        color=corr_vals.values, color_continuous_scale="RdYlGn",
+                        labels={"value": "Correlation", "index": "Stock"},
+                        title=f"Return Correlation with {target_stock}",
+                        range_color=[-1, 1],
+                    )
+                    st.plotly_chart(fig_corr, use_container_width=True)
