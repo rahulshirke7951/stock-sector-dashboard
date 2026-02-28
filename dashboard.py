@@ -81,7 +81,7 @@ if horizon == "Last 12 Months": start_date = latest_date - pd.DateOffset(months=
 elif horizon == "Last 6 Months": start_date = latest_date - pd.DateOffset(months=6)
 elif horizon == "Last 3 Months": start_date = latest_date - pd.DateOffset(months=3)
 elif horizon == "All Time": start_date = prices_df.index.min()
-else: start_date = pd.to_datetime(f"{min(selected_years)}-01-01")
+else: start_date = pd.to_datetime(f"{min(selected_years) if selected_years else 2000}-01-01")
 
 if horizon == "Custom Years":
     filtered_prices = prices_df[prices_df.index.year.isin(selected_years)][selected_stocks]
@@ -104,22 +104,13 @@ for s in selected_stocks:
         summary.append({"Ticker": s, "Return %": ret, "CAGR %": cagr, "Latest": col.iloc[-1]})
 df_sum = pd.DataFrame(summary).sort_values("Return %", ascending=False)
 
-# --- NEW: SIDEBAR DOWNLOAD BUTTON ---
-with st.sidebar:
-    st.markdown("---")
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df_sum.to_excel(writer, index=False, sheet_name='Performance_Report')
-    excel_data = output.getvalue()
-    st.download_button(label="📥 Download Excel Report", data=excel_data, file_name=f"Report_{selected_file}", mime="application/vnd.ms-excel", use_container_width=True)
-
-# --- MAIN UI ---
+# --- HEADER & CONTEXT ---
 st.markdown(f'<h1 class="main-header">📈 {selected_file.replace(".xlsx", "")}</h1>', unsafe_allow_html=True)
 sync_time = datetime.fromtimestamp(os.path.getmtime(file_path)).strftime('%Y-%m-%d %H:%M')
 
 c_inf1, c_inf2, c_inf3 = st.columns(3)
 with c_inf1: st.markdown(f'<div class="timestamp">📅 <b>Period:</b> {filtered_prices.index.min().strftime("%d %b %Y")} — {filtered_prices.index.max().strftime("%d %b %Y")}</div>', unsafe_allow_html=True)
-with c_inf2: st.markdown(f'<div class="timestamp">📊 <b>Days:</b> {len(filtered_prices)} Trading Sessions</div>', unsafe_allow_html=True)
+with c_inf2: st.markdown(f'<div class="timestamp">📊 <b>Days:</b> {len(filtered_prices)} Sessions</div>', unsafe_allow_html=True)
 with c_inf3: st.markdown(f'<div class="timestamp">🔄 <b>Last Sync:</b> {sync_time}</div>', unsafe_allow_html=True)
 
 m1, m2, m3 = st.columns(3)
@@ -130,14 +121,19 @@ m3.metric("📅 Annualized CAGR", f"{df_sum['CAGR %'].mean():.1f}%", f"Over {yea
 st.divider()
 
 # --- TABS ---
-t1, t2, t3, t4, t5, t6 = st.tabs(["📊 Visuals", "📋 Stats", "📅 Monthly", "🏢 Quarterly", "📆 Daily", "🔍 Deep-Dive"])
+t1, t2, t3, t4, t5, t6 = st.tabs(["📊 Visuals", "📋 Performance Stats", "📅 Monthly Heatmap", "🏢 Quarterly Heatmap","📆 Daily Heatmap","🔍 Stock Deep-Dive"])
 
 with t1:
-    col_v1, col_v2 = st.columns([1, 1.5])
-    with col_v1: st.plotly_chart(px.bar(df_sum, x="Return %", y="Ticker", orientation='h', color="Return %", color_continuous_scale='RdYlGn', template="plotly_white", title="Ranking"), use_container_width=True)
-    with col_v2: st.plotly_chart(px.line(filtered_prices, template="plotly_white", title="Price Movement"), use_container_width=True)
+    v_col1, v_col2 = st.columns([1, 1.5])
+    with v_col1:
+        st.subheader("🔥 Performance Ranking")
+        st.plotly_chart(px.bar(df_sum, x="Return %", y="Ticker", orientation='h', color="Return %", color_continuous_scale='RdYlGn', template="plotly_white"), use_container_width=True)
+    with v_col2:
+        st.subheader("📈 Relative Price Movement")
+        st.plotly_chart(px.line(filtered_prices, template="plotly_white"), use_container_width=True)
     
-    st.subheader("🕵️ Rolling 12M Consistency")
+    st.divider()
+    st.subheader("🕵️ Rolling 12M Return Consistency")
     try:
         roll = pd.read_excel(file_path, sheet_name="rolling_12m", index_col=0)
         roll.index = pd.to_datetime(roll.index)
@@ -146,25 +142,14 @@ with t1:
         fig_roll = px.line(display_roll, template="plotly_white")
         fig_roll.add_hline(y=0, line_dash="dash", line_color="red")
         st.plotly_chart(fig_roll, use_container_width=True)
-    except: st.info("Rolling data unavailable for this window.")
+    except: st.info("ℹ️ Rolling analysis unavailable for this window.")
 
 with t2:
-    
     st.subheader("Detailed Performance Metrics")
-    # This must be indented 4 spaces from the 'with' line
-    st.dataframe(
-        df_sum.style.background_gradient(subset=["Return %", "CAGR %"], cmap="RdYlGn")
-        .format({
-            "Return %": "{:.2f}%", 
-            "CAGR %": "{:.2f}%", 
-            "Latest": "₹{:.2f}"
-        }), 
-        use_container_width=True, 
-        hide_index=True
-    )     
-    
+    st.dataframe(df_sum.style.background_gradient(subset=["Return %", "CAGR %"], cmap="RdYlGn").format({"Return %": "{:.2f}%", "CAGR %": "{:.2f}%", "Latest": "₹{:.2f}"}), use_container_width=True, hide_index=True)
 
 with t3:
+    st.subheader("Monthly Returns (%)")
     try:
         m_data = pd.read_excel(file_path, sheet_name="monthly_returns", index_col=0)
         m_data.rename(columns=name_map, inplace=True)
@@ -172,9 +157,10 @@ with t3:
         f_m = m_data.loc[filtered_prices.index.min():filtered_prices.index.max(), selected_stocks]
         f_m.index = f_m.index.strftime('%Y-%b')
         st.dataframe(f_m.style.background_gradient(cmap='RdYlGn', axis=None).format("{:.2f}%"), use_container_width=True)
-    except: st.info("Monthly data not available.")
+    except: st.info("ℹ️ Monthly data not found.")
 
 with t4:
+    st.subheader("Quarterly Returns (%)")
     try:
         q_data = pd.read_excel(file_path, sheet_name="quarterly_returns", index_col=0)
         q_data.rename(columns=name_map, inplace=True)
@@ -182,24 +168,57 @@ with t4:
         f_q_final = q_data.loc[filtered_prices.index.min():filtered_prices.index.max(), selected_stocks]
         f_q_final.index = f_q_final.index.to_period('Q').astype(str)
         st.dataframe(f_q_final.style.background_gradient(cmap='RdYlGn', axis=None).format("{:.2f}%"), use_container_width=True)
-    except: st.info("Quarterly data not available.")
+    except: st.info("ℹ️ Quarterly data not found.")
 
 with t5:
     available_months = sorted(filtered_prices.index.strftime('%Y-%m').unique().tolist(), reverse=True)
-    sel_months = st.multiselect("📅 Select Month(s)", available_months, default=available_months[:1])
+    sel_months = st.multiselect("📅 Select Month(s) to Analyze", available_months, default=available_months[:1], key="d_month")
+    
     if sel_months:
-        day_view = (prices_df.pct_change() * 100).loc[prices_df[prices_df.index.strftime('%Y-%m').isin(sel_months)].index, selected_stocks]
+        daily_ret_full = prices_df.pct_change() * 100
+        target_indices = prices_df[prices_df.index.strftime('%Y-%m').isin(sel_months)].index
+        day_view = daily_ret_full.loc[target_indices, selected_stocks].copy()
+        
+        # Period Insight Metrics
+        summary_p = pd.DataFrame({'Total %': day_view.sum()}).sort_values('Total %', ascending=False)
+        t_col1, t_col2, t_col3 = st.columns(3)
+        t_col1.metric("🥇 Period Leader", f"{summary_p.iloc[0]['Total %']:.2f}%", f"{summary_p.index[0]}")
+        t_col2.metric("🚀 Top Daily Move", f"{day_view.max().max():.2f}%", f"{day_view.max().idxmax()}")
+        t_col3.metric("📉 Deepest Day Cut", f"{day_view.min().min():.2f}%", f"{day_view.min().idxmin()}")
+
+        # Cumulative Growth Chart
+        st.subheader("🕵️ Performance Trend (Cumulative Growth)")
+        cum_trend = ((1 + day_view / 100).cumprod() - 1) * 100
+        st.plotly_chart(px.line(cum_trend, template="plotly_white", markers=True), use_container_width=True)
+        
+        # Detail Table
+        st.subheader("📋 Daily Returns Detail (%)")
         st.dataframe(day_view.sort_index(ascending=False).style.background_gradient(cmap='RdYlGn', axis=None).format("{:.2f}%"), use_container_width=True)
 
 with t6:
-    target_stock = st.selectbox("Deep-Dive Stock:", selected_stocks)
+    st.subheader("🔍 Individual Stock Deep-Dive")
+    target_stock = st.selectbox("Pick a stock to analyze:", selected_stocks, key="dd_ticker")
     if target_stock:
         s_data = filtered_prices[target_stock].dropna()
         full_p = prices_df[target_stock].dropna()
         ma50 = full_p.rolling(50).mean().loc[s_data.index]
         ma200 = full_p.rolling(200).mean().loc[s_data.index]
         
-        if ma50.iloc[-1] > ma200.iloc[-1]: st.success("🚀 Golden Cross Active")
-        else: st.error("⚠️ Death Cross Active")
-        
-        st.plotly_chart(px.line(s_data, template="plotly_white").add_scatter(x=ma50.index, y=ma50, name="50 DMA").add_scatter(x=ma200.index, y=ma200, name="200 DMA"), use_container_width=True)
+        if ma50.iloc[-1] > ma200.iloc[-1]: st.success(f"🚀 **Golden Cross:** {target_stock} is Bullish.")
+        else: st.error(f"⚠️ **Death Cross:** {target_stock} is Bearish.")
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Current Price", f"₹{s_data.iloc[-1]:.2f}")
+        c2.metric("Period Return", f"{((s_data.iloc[-1]/s_data.iloc[0])-1)*100:.2f}%")
+        c3.metric("Peak Price", f"₹{s_data.max():.2f}")
+        dd = (s_data / s_data.cummax() - 1) * 100
+        c4.metric("Max Drawdown", f"{dd.min():.2f}%")
+
+        fig_main = px.line(s_data, template="plotly_white", title=f"{target_stock} Trend")
+        fig_main.add_scatter(x=ma50.index, y=ma50, name="50 DMA", line=dict(dash='dash', color='orange'))
+        fig_main.add_scatter(x=ma200.index, y=ma200, name="200 DMA", line=dict(dash='dot', color='red'))
+        st.plotly_chart(fig_main, use_container_width=True)
+
+        cl, cr = st.columns(2)
+        cl.plotly_chart(px.area(dd, title="Drawdown %", template="plotly_white", color_discrete_sequence=['red']), use_container_width=True)
+        cr.plotly_chart(px.histogram(s_data.pct_change()*100, nbins=30, title="Daily Return Dist.", template="plotly_white"), use_container_width=True)
