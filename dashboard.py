@@ -310,6 +310,10 @@ with t5:
                         use_container_width=True,
                         key="dl_prices_t5"
                     )
+# ... (End of your Tab 5 logic, Price History, and Download buttons) ...
+
+    except Exception as e:
+        st.error(f"⚠️ Tab 5 Error: {e}")
 
 with t6:
     st.subheader("🔍 Individual Stock Deep-Dive")
