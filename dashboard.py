@@ -160,43 +160,139 @@ with t4:
         f_q_final.index = f_q_final.index.to_period('Q').astype(str)
         st.dataframe(f_q_final.style.background_gradient(cmap='RdYlGn', axis=None).format("{:.2f}%"), use_container_width=True)
     except: st.info("ℹ️ Quarterly data not found.")
-
+        
 with t5:
-    available_months = sorted(prices_df[prices_df.index.year.isin(selected_years)].index.strftime('%Y-%m').unique().tolist(), reverse=True)
-    sel_months = st.multiselect("📅 Select Month(s) to Analyze", available_months, default=[available_months[0]] if available_months else [], key="d_month")
+    # --- 1. SELECTION UI ---
+    # We pull available months only from the years currently selected in the sidebar
+    available_months = sorted(
+        prices_df[prices_df.index.year.isin(selected_years)].index.strftime('%Y-%m').unique().tolist(), 
+        reverse=True
+    )
     
-    if sel_months:
-        daily_ret_full = prices_df.pct_change() * 100
-        target_indices = prices_df[prices_df.index.strftime('%Y-%m').isin(sel_months)].index
-        day_view = daily_ret_full.loc[target_indices, selected_stocks].copy()
+    # Default to the most recent month available
+    default_month = [available_months[0]] if available_months else []
 
-        summary_df = pd.DataFrame({
-            'Total Return (%)': day_view.sum(),
-            'Best Day (%)': day_view.max(),
-            'Worst Day (%)': day_view.min(),
-            'Avg Daily Move (%)': day_view.mean()
-        }).sort_values(by='Total Return (%)', ascending=False)
+    sel_months = st.multiselect(
+        "📅 Select Month(s) to Analyze", 
+        available_months, 
+        default=default_month, 
+        key="d_month_selector"
+    )
 
-        # Insight Tiles
-        t_col1, t_col2, t_col3 = st.columns(3)
-        t_col1.metric("🥇 Period Leader", f"{summary_df.iloc[0]['Total Return (%)']:.2f}%", f"{summary_df.index[0]}")
-        t_col2.metric("🚀 Top Daily Move", f"{day_view.max().max():.2f}%", f"{day_view.max().idxmax()}")
-        t_col3.metric("📉 Deepest Day Cut", f"{day_view.min().min():.2f}%", f"{day_view.min().idxmin()}")
+    st.divider()
 
-        st.subheader("📊 Performance Deep-Dive")
-        st.dataframe(summary_df.style.background_gradient(cmap='YlGn', subset=['Total Return (%)']).format("{:.2f}%"), use_container_width=True)
+    try:
+        if sel_months:
+            # --- 2. LOGIC: CALCULATE RETURNS ON FULL DATASET ---
+            # This ensures the first day of the month has a valid return from the previous close
+            daily_ret_full = prices_df.pct_change() * 100
+            
+            # Identify the specific dates belonging to the selected months
+            target_indices = prices_df[prices_df.index.strftime('%Y-%m').isin(sel_months)].index
+            
+            if not target_indices.empty:
+                # Filter by BOTH Selected Dates and sidebar-selected Stocks
+                day_view = daily_ret_full.loc[target_indices, selected_stocks].copy()
 
-        # Trend Chart with Dynamic Logic
-        chart_col, ctrl_col = st.columns([4, 1])
-        with ctrl_col:
-            sel_stocks_chart = st.multiselect("Select Stocks:", selected_stocks, default=summary_df.head(2).index.tolist(), key="t5_chart_stocks")
-        with chart_col:
-            if sel_stocks_chart:
-                cum_trend = ((1 + day_view[sel_stocks_chart] / 100).cumprod() - 1) * 100
-                st.plotly_chart(px.line(cum_trend, template="plotly_white", markers=True, height=400, title="Cumulative Growth %"), use_container_width=True)
+                # --- 3. DYNAMIC SUMMARY (Recalculated for the selected period) ---
+                # This ensures the ranking updates when you toggle months
+                summary_df = pd.DataFrame({
+                    'Total Return (%)': day_view.sum(),
+                    'Best Day (%)': day_view.max(),
+                    'Worst Day (%)': day_view.min(),
+                    'Avg Daily Move (%)': day_view.mean()
+                }).sort_values(by='Total Return (%)', ascending=False)
 
-        st.subheader("📋 Daily Returns Detail (%)")
-        st.dataframe(day_view.sort_index(ascending=False).style.background_gradient(cmap='RdYlGn', axis=None).format("{:.2f}%"), use_container_width=True)
+                # Identify winners specifically for the selected month range
+                top_2_names = summary_df.head(2).index.tolist()
+
+                # --- 4. PERIOD INSIGHT TILES ---
+                overall_winner = summary_df.index[0]
+                overall_val = summary_df.iloc[0]['Total Return (%)']
+                
+                max_val = day_view.max().max()
+                best_s = day_view.max().idxmax()
+                best_d = day_view[best_s].idxmax().strftime('%d %b %Y')
+                
+                min_val = day_view.min().min()
+                worst_s = day_view.min().idxmin()
+                worst_d = day_view[worst_s].idxmin().strftime('%d %b %Y')
+                
+                t_col1, t_col2, t_col3 = st.columns(3)
+                with t_col1:
+                    st.metric("🥇 Period Leader", f"{overall_val:.2f}%", f"{overall_winner}")
+                with t_col2:
+                    st.metric("🚀 Top Daily Move", f"{max_val:.2f}%", f"{best_s} ({best_d})")
+                with t_col3:
+                    st.metric("📉 Deepest Day Cut", f"{min_val:.2f}%", f"{worst_s} ({worst_d})")
+                
+                # --- 5. PERFORMANCE SUMMARY TABLE ---
+                st.subheader("📊 Performance Ranking (Selected Period)")
+                st.dataframe(
+                    summary_df.style.background_gradient(cmap='YlGn', subset=['Total Return (%)']).format("{:.2f}%"), 
+                    use_container_width=True
+                )
+
+                st.write("") 
+
+                # --- 6. TREND CHART ---
+                chart_col, ctrl_col = st.columns([4, 1]) 
+
+                with ctrl_col:
+                    st.write("🔍 **Chart Filters**")
+                    sel_stocks_chart = st.multiselect(
+                        "Select Stocks:", 
+                        selected_stocks, 
+                        default=top_2_names, 
+                        key="t5_trend_chart_stocks" 
+                    )
+                    st.caption("Winners for this specific period are auto-selected.")
+
+                with chart_col:
+                    if sel_stocks_chart:
+                        st.subheader(f"🕵️ Compounded Growth ({', '.join(sel_months)})")
+                        
+                        chart_data = day_view[sel_stocks_chart].copy()
+                        # Calculate compounded growth starting from 0%
+                        cum_trend_pct = ((1 + chart_data / 100).cumprod() - 1) * 100
+                        
+                        fig_trend = px.line(
+                            cum_trend_pct, 
+                            template="plotly_white", 
+                            labels={"value": "Growth %", "index": "Date"},
+                            markers=True,
+                            height=450
+                        )
+                        fig_trend.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.7)
+                        fig_trend.update_layout(showlegend=True, hovermode="x unified", margin=dict(l=0, r=0, t=10, b=0))
+                        st.plotly_chart(fig_trend, use_container_width=True)
+
+                # --- 7. DAILY HEATMAP ---
+                st.subheader("📋 Raw Daily Returns (%)")
+                table_display = day_view.copy().sort_index(ascending=False)
+                table_display.index = table_display.index.strftime('%Y-%m-%d (%a)')
+                
+                st.dataframe(
+                    table_display.style.background_gradient(cmap='RdYlGn', axis=None).format("{:.2f}%"), 
+                    use_container_width=True
+                )
+
+                # --- 8. EXPORT OPTION ---
+                st.divider()
+                csv_data = day_view.to_csv().encode('utf-8')
+                st.download_button(
+                    label="📥 Download Daily Returns for Selected Period (CSV)", 
+                    data=csv_data, 
+                    file_name=f"returns_{'_'.join(sel_months)}.csv", 
+                    mime='text/csv', 
+                    use_container_width=True
+                )
+                
+        else:
+            st.info("💡 Please select at least one month in the selector above to begin analysis.")
+
+    except Exception as e:
+        st.error(f"⚠️ Calculation Error: {e}")
 
 with t6:
     st.subheader("🔍 Individual Stock Deep-Dive")
