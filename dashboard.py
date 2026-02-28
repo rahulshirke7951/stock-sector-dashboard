@@ -294,6 +294,31 @@ with t5:
     except Exception as e:
         st.error(f"⚠️ Calculation Error: {e}")
 
+
+                # --- 9. PRICE HISTORY SECTION (NEW) ---
+                st.subheader("📈 Absolute Price History (Selected Period)")
+                
+                # Filter the raw prices for the selected months and stocks
+                period_price_history = prices_df.loc[target_indices, selected_stocks].copy()
+                period_price_history.index = period_price_history.index.strftime('%Y-%m-%d')
+                
+                # Display a clean version of the prices
+                st.dataframe(
+                    period_price_history.sort_index(ascending=False), 
+                    use_container_width=True
+                )
+                
+                # Download button for Price History
+                csv_prices = period_price_history.to_csv().encode('utf-8')
+                st.download_button(
+                    label="📥 Download Price History for Selected Period (CSV)", 
+                    data=csv_prices, 
+                    file_name=f"prices_{'_'.join(sel_months)}.csv", 
+                    mime='text/csv', 
+                    use_container_width=True,
+                    key="dl_prices_t5" # Unique key to avoid conflict
+                )
+
 with t6:
     st.subheader("🔍 Individual Stock Deep-Dive")
     target_stock = st.selectbox("Pick a stock to analyze in detail:", selected_stocks, key="deep_dive_ticker")
