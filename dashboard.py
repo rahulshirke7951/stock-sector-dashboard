@@ -225,7 +225,7 @@ files = sorted([f for f in os.listdir(folder) if f.endswith(".xlsx")])
 # --- SIDEBAR CONTROLS ---
 with st.sidebar:
     st.title("📂 Watchlist Controls")
-    selected_file = st.selectbox("Select Watchlist", files)
+    selected_file = st.selectbox("Select Watchlist", files, key="main_watchlist_selector")
     file_path = os.path.join(folder, selected_file)
     
     if st.button("🔄 Reload & Sync Data", use_container_width=True):
