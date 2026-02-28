@@ -3,6 +3,7 @@ import pandas as pd
 import os
 import plotly.express as px
 from datetime import datetime
+import io
 
 # --- CONFIGURATION & PAGE SETUP ---
 st.set_page_config(page_title="Stock Watchlist Terminal", layout="wide", initial_sidebar_state="expanded")
@@ -44,30 +45,32 @@ files = sorted([f for f in os.listdir(folder) if f.endswith(".xlsx")])
 # --- SIDEBAR CONTROLS ---
 with st.sidebar:
     st.title("📂 Watchlist Controls")
-    selected_file = st.selectbox("Select Watchlist", files, key="file_sel")
+    selected_file = st.selectbox("Select Watchlist", files, key="main_file_select")
     file_path = os.path.join(folder, selected_file)
     
-    if st.button("🔄 Reload & Sync Data", use_container_width=True):
+    if st.button("🔄 Reload & Sync Data", use_container_width=True, key="sync_button"):
         st.cache_data.clear()
         st.rerun()
 
+    # Load metadata
     try:
         meta_df = pd.read_excel(file_path, sheet_name="metadata", index_col=0)
         name_map = meta_df.iloc[:, 0].to_dict()
     except: name_map = {}
 
+    # Load Price Data
     prices_df = pd.read_excel(file_path, sheet_name="prices", index_col=0)
     prices_df.index = pd.to_datetime(prices_df.index)
     prices_df.rename(columns=name_map, inplace=True)
     all_stocks = sorted(prices_df.columns.tolist())
 
     st.markdown("---")
-    select_all = st.toggle("Select All Stocks", value=True)
+    select_all = st.toggle("Select All Stocks", value=True, key="toggle_all")
     current_default = all_stocks if select_all else []
-    selected_stocks = st.multiselect("Active Stocks", all_stocks, default=current_default)
-    
+    selected_stocks = st.multiselect("Active Stocks", all_stocks, default=current_default, key="stock_selector")
+
     available_years = sorted(prices_df.index.year.unique(), reverse=True)
-    selected_years = st.multiselect("Years", available_years, default=available_years[:2])
+    selected_years = st.multiselect("Years", available_years, default=available_years[:2], key="year_selector")
 
 # --- LOGIC LAYER ---
 filtered_prices = prices_df[prices_df.index.year.isin(selected_years)][selected_stocks]
@@ -86,17 +89,19 @@ for s in selected_stocks:
         ret = ((col.iloc[-1] / col.iloc[0]) - 1) * 100
         cagr = (((col.iloc[-1] / col.iloc[0]) ** (1/years_val)) - 1) * 100
         summary.append({"Ticker": s, "Return %": ret, "CAGR %": cagr, "Latest": col.iloc[-1]})
+
 df_sum = pd.DataFrame(summary).sort_values("Return %", ascending=False)
 
-# --- HEADER ---
+# --- HEADER & CONTEXT BAR ---
 st.markdown(f'<h1 class="main-header">📈 {selected_file.replace(".xlsx", "")}</h1>', unsafe_allow_html=True)
 sync_time = datetime.fromtimestamp(os.path.getmtime(file_path)).strftime('%Y-%m-%d %H:%M')
 
 c_inf1, c_inf2, c_inf3 = st.columns(3)
 with c_inf1: st.markdown(f'<div class="timestamp">📅 <b>Period:</b> {filtered_prices.index.min().strftime("%d %b %Y")} — {filtered_prices.index.max().strftime("%d %b %Y")}</div>', unsafe_allow_html=True)
-with c_inf2: st.markdown(f'<div class="timestamp">📊 <b>Days:</b> {len(filtered_prices)} Sessions</div>', unsafe_allow_html=True)
+with c_inf2: st.markdown(f'<div class="timestamp">📊 <b>Days:</b> {len(filtered_prices)} Trading Sessions</div>', unsafe_allow_html=True)
 with c_inf3: st.markdown(f'<div class="timestamp">🔄 <b>Last Sync:</b> {sync_time}</div>', unsafe_allow_html=True)
 
+# Main Metrics
 m1, m2, m3 = st.columns(3)
 m1.metric("🏆 Top Performer", f"{df_sum.iloc[0]['Return %']:.1f}%", f"Stock: {df_sum.iloc[0]['Ticker']}")
 m2.metric("📈 Selection Avg Return", f"{df_sum['Return %'].mean():.1f}%", "Overall Portfolio")
@@ -105,7 +110,7 @@ m3.metric("📅 Annualized CAGR", f"{df_sum['CAGR %'].mean():.1f}%", f"Over {yea
 st.divider()
 
 # --- TABS ---
-t1, t2, t3, t4, t5, t6 = st.tabs(["📊 Visuals", "📋 Stats", "📅 Monthly", "🏢 Quarterly","📆 Daily","🔍 Deep-Dive"])
+t1, t2, t3, t4, t5, t6 = st.tabs(["📊 Visuals", "📋 Performance Stats", "📅 Monthly Heatmap", "🏢 Quarterly Heatmap","📆 Daily Heatmap","🔍 Individual Stock Deep-Dive"])
 
 with t1:
     v_col1, v_col2 = st.columns([1, 1.5])
@@ -115,69 +120,113 @@ with t1:
     with v_col2:
         st.subheader("📈 Relative Price Movement")
         st.plotly_chart(px.line(filtered_prices, template="plotly_white"), use_container_width=True)
+    
+    st.divider()
+    st.subheader("🕵️ Rolling 12M Return Consistency")
+    try:
+        roll = pd.read_excel(file_path, sheet_name="rolling_12m", index_col=0)
+        roll.index = pd.to_datetime(roll.index)
+        roll.rename(columns=name_map, inplace=True)
+        display_roll = roll[roll.index.year.isin(selected_years)][selected_stocks]
+        fig_roll = px.line(display_roll, template="plotly_white")
+        fig_roll.add_hline(y=0, line_dash="dash", line_color="red")
+        st.plotly_chart(fig_roll, use_container_width=True)
+    except: st.info("ℹ️ Rolling analysis unavailable. Run engine.py to sync.")
+
+with t2:
+    st.subheader("Detailed Performance Metrics")
+    st.dataframe(df_sum.style.background_gradient(subset=["Return %", "CAGR %"], cmap="RdYlGn").format({"Return %": "{:.2f}%", "CAGR %": "{:.2f}%", "Latest": "₹{:.2f}"}), use_container_width=True, hide_index=True)
 
 with t3:
+    st.subheader("Monthly Returns (%)")
     try:
         m_data = pd.read_excel(file_path, sheet_name="monthly_returns", index_col=0)
         m_data.rename(columns=name_map, inplace=True)
         m_data.index = pd.to_datetime(m_data.index)
         f_m = m_data[selected_stocks]
-        f_m = f_m[f_m.index.year.isin(selected_years)]
+        f_m = f_m[f_m.index.year.isin(selected_years)].sort_index(ascending=False)
         f_m.index = f_m.index.strftime('%Y-%b')
         st.dataframe(f_m.style.background_gradient(cmap='RdYlGn', axis=None).format("{:.2f}%"), use_container_width=True)
     except: st.info("ℹ️ Monthly data not found.")
 
+with t4:
+    st.subheader("Quarterly Returns (%)")
+    try:
+        q_data = pd.read_excel(file_path, sheet_name="quarterly_returns", index_col=0)
+        q_data.rename(columns=name_map, inplace=True)
+        q_data.index = pd.to_datetime([str(x).replace('Q', '-') for x in q_data.index])
+        f_q_final = q_data[selected_stocks]
+        f_q_final = f_q_final[f_q_final.index.year.isin(selected_years)].sort_index(ascending=False)
+        f_q_final.index = f_q_final.index.to_period('Q').astype(str)
+        st.dataframe(f_q_final.style.background_gradient(cmap='RdYlGn', axis=None).format("{:.2f}%"), use_container_width=True)
+    except: st.info("ℹ️ Quarterly data not found.")
+
 with t5:
     available_months = sorted(prices_df[prices_df.index.year.isin(selected_years)].index.strftime('%Y-%m').unique().tolist(), reverse=True)
-    sel_months = st.multiselect("📅 Select Month(s)", available_months, default=[available_months[0]] if available_months else [], key="d_month")
+    sel_months = st.multiselect("📅 Select Month(s) to Analyze", available_months, default=[available_months[0]] if available_months else [], key="d_month")
     
     if sel_months:
         daily_ret_full = prices_df.pct_change() * 100
         target_indices = prices_df[prices_df.index.strftime('%Y-%m').isin(sel_months)].index
         day_view = daily_ret_full.loc[target_indices, selected_stocks].copy()
-        
+
         summary_df = pd.DataFrame({
             'Total Return (%)': day_view.sum(),
             'Best Day (%)': day_view.max(),
-            'Worst Day (%)': day_view.min()
+            'Worst Day (%)': day_view.min(),
+            'Avg Daily Move (%)': day_view.mean()
         }).sort_values(by='Total Return (%)', ascending=False)
-        
+
+        # Insight Tiles
+        t_col1, t_col2, t_col3 = st.columns(3)
+        t_col1.metric("🥇 Period Leader", f"{summary_df.iloc[0]['Total Return (%)']:.2f}%", f"{summary_df.index[0]}")
+        t_col2.metric("🚀 Top Daily Move", f"{day_view.max().max():.2f}%", f"{day_view.max().idxmax()}")
+        t_col3.metric("📉 Deepest Day Cut", f"{day_view.min().min():.2f}%", f"{day_view.min().idxmin()}")
+
+        st.subheader("📊 Performance Deep-Dive")
         st.dataframe(summary_df.style.background_gradient(cmap='YlGn', subset=['Total Return (%)']).format("{:.2f}%"), use_container_width=True)
-        
-        # Trend Chart
-        sel_stocks_chart = st.multiselect("Filter Chart:", selected_stocks, default=summary_df.head(2).index.tolist(), key="t5_chart_stocks")
-        if sel_stocks_chart:
-            cum_trend = ((1 + day_view[sel_stocks_chart] / 100).cumprod() - 1) * 100
-            st.plotly_chart(px.line(cum_trend, template="plotly_white", title="Cumulative Growth %"), use_container_width=True)
+
+        # Trend Chart with Dynamic Logic
+        chart_col, ctrl_col = st.columns([4, 1])
+        with ctrl_col:
+            sel_stocks_chart = st.multiselect("Select Stocks:", selected_stocks, default=summary_df.head(2).index.tolist(), key="t5_chart_stocks")
+        with chart_col:
+            if sel_stocks_chart:
+                cum_trend = ((1 + day_view[sel_stocks_chart] / 100).cumprod() - 1) * 100
+                st.plotly_chart(px.line(cum_trend, template="plotly_white", markers=True, height=400, title="Cumulative Growth %"), use_container_width=True)
+
+        st.subheader("📋 Daily Returns Detail (%)")
+        st.dataframe(day_view.sort_index(ascending=False).style.background_gradient(cmap='RdYlGn', axis=None).format("{:.2f}%"), use_container_width=True)
 
 with t6:
     st.subheader("🔍 Individual Stock Deep-Dive")
-    target_stock = st.selectbox("Pick a stock to analyze:", selected_stocks, key="deep_dive_ticker")
+    target_stock = st.selectbox("Pick a stock to analyze in detail:", selected_stocks, key="deep_dive_ticker")
 
-    # --- INDENTATION FIXED: Logic is now inside 'with t6' ---
     if target_stock:
         s_data = filtered_prices[target_stock].dropna()
         full_series = prices_df[target_stock].dropna()
         ma50 = full_series.rolling(50).mean().loc[s_data.index]
         ma200 = full_series.rolling(200).mean().loc[s_data.index]
         
-        # Signal Tiles
-        if ma50.iloc[-1] > ma200.iloc[-1]: st.success(f"🚀 **Bullish:** Golden Cross")
-        else: st.error(f"⚠️ **Bearish:** Death Cross")
+        # Signal Logic
+        if ma50.iloc[-1] > ma200.iloc[-1]: st.success(f"🚀 **Bullish Trend:** Golden Cross")
+        else: st.error(f"⚠️ **Bearish Trend:** Death Cross")
 
+        # Metric Cards with Peak Context
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Current Price", f"₹{s_data.iloc[-1]:.2f}")
         c2.metric("Period Return", f"{((s_data.iloc[-1]/s_data.iloc[0])-1)*100:.2f}%")
-        c3.metric("Peak Price", f"₹{s_data.max():.2f}")
+        c3.metric("Max Price", f"₹{s_data.max():.2f}", f"Peak: {s_data.idxmax().strftime('%d %b %Y')}")
         dd = (s_data / s_data.cummax() - 1) * 100
-        c4.metric("Max Drawdown", f"{dd.min():.2f}%")
+        c4.metric("Max Drawdown", f"{dd.min():.2f}%", delta_color="inverse")
 
-        # Main Chart
-        fig_main = px.line(s_data, template="plotly_white", color_discrete_sequence=['#002b5b'], title=f"{target_stock} Trend")
+        # Main Technical Chart with Annotations
+        fig_main = px.line(s_data, template="plotly_white", color_discrete_sequence=['#002b5b'], title=f"{target_stock} Technical Trend")
         fig_main.add_scatter(x=ma50.index, y=ma50, name="50 DMA", line=dict(dash='dash', color='orange'))
         fig_main.add_scatter(x=ma200.index, y=ma200, name="200 DMA", line=dict(dash='dot', color='red'))
+        fig_main.add_annotation(x=s_data.idxmax(), y=s_data.max(), text="Cycle Peak", showarrow=True, arrowhead=1)
         st.plotly_chart(fig_main, use_container_width=True)
-        
+
         col_l, col_r = st.columns(2)
-        with col_l: st.plotly_chart(px.area(dd, title="Drawdown (%)", template="plotly_white", color_discrete_sequence=['#ff4b4b']), use_container_width=True)
-        with col_r: st.plotly_chart(px.histogram(s_data.pct_change()*100, nbins=40, title="Return Frequency", template="plotly_white"), use_container_width=True)
+        with col_l: st.plotly_chart(px.area(dd, title="Peak-to-Trough Drawdown (%)", template="plotly_white", color_discrete_sequence=['#ff4b4b']), use_container_width=True)
+        with col_r: st.plotly_chart(px.histogram(s_data.pct_change()*100, nbins=40, title="Daily Return Frequency", template="plotly_white"), use_container_width=True)
