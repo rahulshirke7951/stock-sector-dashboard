@@ -106,6 +106,7 @@ td {{ text-align: center !important; }}
 # ─────────────────────────────────────────────
 @st.cache_data(show_spinner="Loading price data…")
 def load_prices(file_path: str) -> pd.DataFrame:
+    """Returns RAW prices with original ticker columns — never rename in-place here."""
     df = pd.read_excel(file_path, sheet_name=SHEET_PRICES, index_col=0)
     df.index = pd.to_datetime(df.index)
     return df
@@ -124,6 +125,14 @@ def load_sheet(file_path: str, sheet: str) -> pd.DataFrame | None:
         return pd.read_excel(file_path, sheet_name=sheet, index_col=0)
     except Exception:
         return None
+
+def apply_name_map(df: pd.DataFrame, name_map: dict) -> pd.DataFrame:
+    """
+    DYNAMIC FILE SWITCHING FIX: Always rename on a fresh copy — never mutate the
+    cached dataframe. This means switching watchlists in the sidebar is instant
+    and correct without needing a manual cache-clear/reload.
+    """
+    return df.rename(columns=name_map)
 
 @st.cache_data(show_spinner=False)
 def compute_corr(_df: pd.DataFrame) -> pd.DataFrame:
@@ -219,9 +228,9 @@ with st.sidebar:
         st.rerun()
 
     name_map  = load_name_map(file_path)
-    prices_df = load_prices(file_path)
-    prices_df.rename(columns=name_map, inplace=True)
-    all_stocks = sorted(prices_df.columns.tolist())
+    _raw_prices = load_prices(file_path)
+    prices_df   = apply_name_map(_raw_prices, name_map)   # fresh copy, never mutates cache
+    all_stocks  = sorted(prices_df.columns.tolist())
 
     st.markdown("---")
 
@@ -387,6 +396,11 @@ with t1:
 
     # Normalised chart rebased to 100 + benchmark
     st.subheader("🔢 Normalised Chart (Rebased to 100)")
+    st.caption(
+        "💡 **What is Rebased Price?** Every stock starts at 100 on the first day of the selected period — "
+        "regardless of its actual price. A value of 115 means +15% from your entry; 87 means −13%. "
+        "This removes price-level bias and lets you fairly compare stocks trading at very different absolute prices (e.g. ₹50 vs ₹5,000)."
+    )
     first_valid = filtered_prices.apply(lambda c: c.dropna().iloc[0] if c.dropna().shape[0] else None)
     norm        = filtered_prices.div(first_valid) * 100
     fig_norm    = px.line(norm, template="plotly_white", labels={"value": "Rebased Price (100 = start)"})
@@ -410,7 +424,7 @@ with t1:
     roll_raw = load_sheet(file_path, SHEET_ROLLING_12M)
     if roll_raw is not None:
         roll_raw.index = pd.to_datetime(roll_raw.index)
-        roll_raw.rename(columns=name_map, inplace=True)
+        roll_raw = apply_name_map(roll_raw, name_map)
         cols_avail = [c for c in selected_stocks if c in roll_raw.columns]
         if cols_avail:
             display_roll = roll_raw[cols_avail]   # intentionally no year filter
@@ -481,7 +495,7 @@ with t3:
     st.subheader("Monthly Returns (%)")
     m_data = load_sheet(file_path, SHEET_MONTHLY)
     if m_data is not None:
-        m_data.rename(columns=name_map, inplace=True)
+        m_data = apply_name_map(m_data, name_map)
         m_data.index = pd.to_datetime(m_data.index)
         cols_avail = [c for c in selected_stocks if c in m_data.columns]
         if cols_avail:
@@ -504,18 +518,36 @@ with t4:
     st.subheader("Quarterly Returns (%)")
     q_data = load_sheet(file_path, SHEET_QUARTERLY)
     if q_data is not None:
-        q_data.rename(columns=name_map, inplace=True)
+        q_data = apply_name_map(q_data, name_map)
         q_data.index = parse_quarterly_index(q_data.index)   # FIX #3
         q_data = q_data[q_data.index.notna()]
 
         cols_avail = [c for c in selected_stocks if c in q_data.columns]
         if cols_avail:
             f_q = q_data[q_data.index.year.isin(selected_years)][cols_avail].sort_index(ascending=False)
+
+            # QUARTERLY FIX: Ensure ALL quarters for the selected years are present
+            # even if the engine didn't write a row for quarters with partial/no data.
+            # Build the complete expected quarter grid and reindex into it.
+            expected_quarters = pd.period_range(
+                start=f"{min(selected_years)}Q1",
+                end=f"{max(selected_years)}Q4",
+                freq="Q",
+            )
+            expected_idx = expected_quarters.to_timestamp()
+            # Reindex so missing quarters appear as NaN rows (not silently dropped)
+            f_q = f_q.reindex(expected_idx.sort_values(ascending=False))
             f_q.index = f_q.index.to_period("Q").astype(str)
+
             st.dataframe(
-                f_q.style.background_gradient(cmap="RdYlGn", axis=None).format("{:.2f}%"),
+                f_q.style
+                    .background_gradient(cmap="RdYlGn", axis=None)
+                    .format("{:.2f}%", na_rep="—"),   # show dash for missing quarters
                 use_container_width=True,
             )
+            missing_count = f_q.isna().all(axis=1).sum()
+            if missing_count:
+                st.caption(f"ℹ️ {missing_count} quarter(s) show '—' because no data exists in the source file for those periods.")
         else:
             st.info("ℹ️ No matching tickers in quarterly_returns sheet.")
     else:
