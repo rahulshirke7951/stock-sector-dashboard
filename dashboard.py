@@ -465,7 +465,7 @@ with t2:
             .format({
                 "Return %":   "{:.2f}%",
                 "CAGR %":     "{:.2f}%",
-                "Ann. Vol %": "{:.2f}%",
+                "Ann. Volatility %": "{:.2f}%",
                 "Sharpe":     "{:.2f}",
                 "Latest":     "₹{:.2f}",
             }),
