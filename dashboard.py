@@ -246,7 +246,7 @@ with st.sidebar:
     st.markdown("---")
 
     select_all      = st.toggle("Select All Stocks", value=True)
-        current_default = all_stocks if select_all else []
+    current_default = all_stocks if select_all else []
     
         # FIX: Added selected_file to the key to force a reset when the watchlist changes
         selected_stocks = st.multiselect(
