@@ -688,11 +688,11 @@ with t5:
                             ordered_cols = selected_stocks
                                     
                     # ✅ Now compute returns
-                    daily_ret_full = (
-                        prices_df[ordered_cols]
-                        .loc[:target_indices[-1]]
-                        .pct_change() * 100
-                    )   
+                        daily_ret_full = (
+                            prices_df[ordered_cols]
+                            .loc[:target_indices[-1]]
+                            .pct_change() * 100
+                        )   
                   
                     day_view = daily_ret_full.loc[target_indices].copy()
 
