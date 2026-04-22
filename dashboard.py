@@ -668,7 +668,6 @@ with t5:
                     st.warning("⚠️ No data found for the selected months.")
                 else:
                     daily_ret_full = (
-
                         # 🔥 Decide column order FIRST
                         if sort_daily:
                             ordered_cols = [c for c in ranking_order if c in selected_stocks]
