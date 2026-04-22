@@ -641,6 +641,13 @@ with t4:
 # ══════════════════════════════════════════════
 with t5:
     sort_daily = st.toggle("Sort by Performance", value=True, key="sort_daily")
+ 
+    sort_mode = st.radio(
+    "Sort Mode",
+    ["Current Performance", "Overall Performance"],
+    horizontal=True,
+    key="sort_mode_daily"
+)   
     available_months = sorted(
         prices_df[prices_df.index.year.isin(selected_years)].index.strftime("%Y-%m").unique().tolist(),
         reverse=True,
@@ -668,10 +675,14 @@ with t5:
                     st.warning("⚠️ No data found for the selected months.")
                 else:
                      # 🔥 Decide column order FIRST (OUTSIDE)
-                    if sort_daily:
-                        ordered_cols = [c for c in ranking_order if c in selected_stocks]
-                    else: 
-                        ordered_cols = selected_stocks
+                        if sort_daily:
+                            if sort_mode == "Current Performance":
+                                ordered_cols = [c for c in ranking_order_current if c in selected_stocks]
+                            else:
+                                ordered_cols = [c for c in ranking_order if c in selected_stocks]
+                        else:
+                            ordered_cols = selected_stocks
+                    
                     # ✅ Safety fallback
                     if not ordered_cols:
                         ordered_cols = selected_stocks
@@ -691,7 +702,7 @@ with t5:
                         "Worst Day (%)":      day_view.min(),
                         "Avg Daily Move (%)": day_view.mean(),
                     }).sort_values("Total Return (%)", ascending=False)
-
+                    ranking_order_current = summary_df.index.tolist()
                     top_2_names    = summary_df.head(2).index.tolist()
                     overall_winner = summary_df.index[0]
                     overall_val    = summary_df.iloc[0]["Total Return (%)"]
