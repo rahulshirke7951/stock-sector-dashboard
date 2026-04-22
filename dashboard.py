@@ -776,9 +776,25 @@ with t6:
 
     dd_col1, dd_col2 = st.columns([2, 1])
     with dd_col1:
-        target_stock = st.selectbox("Primary stock:", selected_stocks, key="deep_dive_ticker")
+        # 🔥 Apply ranking order
+        ordered_stocks = [s for s in ranking_order if s in selected_stocks]
+        
+        # fallback safety (in case mismatch)
+        if not ordered_stocks:
+            ordered_stocks = selected_stocks
+        
+        target_stock = st.selectbox(
+            "Primary stock:",
+            ordered_stocks,
+            key="deep_dive_ticker"
+        )
+
+    
     with dd_col2:
-        compare_options = ["— None —"] + [s for s in selected_stocks if s != target_stock]
+        compare_options = ["— None —"] + [
+            s for s in ordered_stocks if s != target_stock
+        ]
+        
         compare_raw     = st.selectbox("Compare with:", compare_options, key="deep_dive_compare")
         compare_stock   = None if compare_raw == "— None —" else compare_raw
 
