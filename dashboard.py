@@ -670,7 +670,7 @@ with t5:
 
                      # 🔥 Decide column order FIRST (OUTSIDE)
                 if sort_daily:
-                    ordered_cols = [c for c in ranking_order if c in selected_stocks]
+                            ordered_cols = [c for c in ranking_order if c in selected_stocks]
                 else: 
                     ordered_cols = selected_stocks
                     # ✅ Safety fallback
