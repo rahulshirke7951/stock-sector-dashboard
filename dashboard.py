@@ -668,20 +668,20 @@ with t5:
                     st.warning("⚠️ No data found for the selected months.")
                 else:
                      # 🔥 Decide column order FIRST (OUTSIDE)
-                if sort_daily:
-                    ordered_cols = [c for c in ranking_order if c in selected_stocks]
-                else: 
-                    ordered_cols = selected_stocks
+                    if sort_daily:
+                        ordered_cols = [c for c in ranking_order if c in selected_stocks]
+                    else: 
+                        ordered_cols = selected_stocks
                     # ✅ Safety fallback
-                if not ordered_cols:
-                    ordered_cols = selected_stocks
-                            
-                # ✅ Now compute returns
-                daily_ret_full = (
-                    prices_df[ordered_cols]
-                    .loc[:target_indices[-1]]
-                    .pct_change() * 100
-                )   
+                    if not ordered_cols:
+                        ordered_cols = selected_stocks
+                                
+                    # ✅ Now compute returns
+                    daily_ret_full = (
+                        prices_df[ordered_cols]
+                        .loc[:target_indices[-1]]
+                        .pct_change() * 100
+                    )   
                   
                     day_view = daily_ret_full.loc[target_indices].copy()
 
