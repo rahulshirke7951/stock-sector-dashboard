@@ -694,7 +694,7 @@ with t5:
                             .pct_change() * 100
                         )   
                   
-                    day_view = daily_ret_full.loc[target_indices].copy()
+                        day_view = daily_ret_full.loc[target_indices].copy()
 
                     summary_df = pd.DataFrame({
                         "Total Return (%)":   ((1 + day_view / 100).prod() - 1) * 100,
