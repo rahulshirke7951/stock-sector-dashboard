@@ -133,6 +133,63 @@ def apply_name_map(df: pd.DataFrame, name_map: dict) -> pd.DataFrame:
 def compute_corr(_df: pd.DataFrame) -> pd.DataFrame:
     return _df.pct_change().dropna().corr()
 
+def opportunity_engine(price_df: pd.DataFrame) -> pd.DataFrame:
+    results = []
+
+    for stock in price_df.columns:
+        p = price_df[stock].dropna()
+
+        if len(p) < 220:
+            continue
+
+        ma50 = p.rolling(50).mean()
+        ma200 = p.rolling(200).mean()
+
+        rolling_high = p.rolling(50).max()
+        drawdown = (p / rolling_high - 1) * 100
+        momentum = p.pct_change(21) * 100
+
+        latest_price = p.iloc[-1]
+        latest_ma50 = ma50.iloc[-1]
+        latest_ma200 = ma200.iloc[-1]
+        latest_drawdown = drawdown.iloc[-1]
+        latest_momentum = momentum.iloc[-1]
+
+        trend_strong = latest_price > latest_ma200
+        pullback_ok = -15 < latest_drawdown < -5
+        support_holding = latest_price >= latest_ma50
+
+        if trend_strong and pullback_ok and support_holding:
+
+            strength = (
+                "Strong" if latest_momentum > 2 else
+                "Moderate" if latest_momentum > 0 else
+                "Weak"
+            )
+
+            message = (
+                f"🟢 BUY SETUP\n"
+                f"Pullback: {latest_drawdown:.1f}%\n"
+                f"Trend intact (above 50 & 200 DMA)\n"
+                f"Momentum: {strength}\n"
+                f"→ Accumulate"
+            )
+
+            results.append({
+                "Stock": stock,
+                "Price": round(latest_price, 2),
+                "Drawdown %": round(latest_drawdown, 2),
+                "Momentum %": round(latest_momentum, 2),
+                "Strength": strength,
+                "Signal": "BUY 🟢",
+                "Action": "Accumulate",
+                "Message": message
+            })
+
+    if not results:
+        return pd.DataFrame()
+
+    return pd.DataFrame(results).sort_values("Drawdown %", ascending=False)
 
 # ─────────────────────────────────────────────
 # HELPERS
@@ -364,13 +421,14 @@ st.divider()
 # ─────────────────────────────────────────────
 # TABS
 # ─────────────────────────────────────────────
-t1, t2, t3, t4, t5, t6 = st.tabs([
+t1, t2, t3, t4, t5, t6, t7 = st.tabs([
     "📊 Visuals",
     "📋 Performance Stats",
     "📅 Monthly Heatmap",
     "🏢 Quarterly Heatmap",
     "📆 Daily Heatmap",
     "🔍 Deep-Dive",
+    "🟢 Opportunities"
 ])
 
 
@@ -838,3 +896,35 @@ with t6:
                     st.plotly_chart(fig_corr, use_container_width=True)
             else:
                 st.info("ℹ️ Select 2 or more stocks to enable correlation analysis.")
+
+# ══════════════════════════════════════════════
+# TAB 7 — OPPORTUNITIES
+# ══════════════════════════════════════════════
+with t7:
+    st.subheader("🟢 Buy Opportunities (Pullback in Strong Trend)")
+
+    with st.spinner("Scanning market for opportunities…"):
+        op_df = opportunity_engine(filtered_prices)
+
+    if op_df.empty:
+        st.info("ℹ️ No strong opportunities right now.")
+    else:
+        st.success(f"🔥 {len(op_df)} opportunity(ies) found")
+
+        st.dataframe(
+            op_df.drop(columns=["Message"]),
+            use_container_width=True,
+            hide_index=True
+        )
+
+        st.divider()
+
+        # 🔍 Message Viewer
+        selected_stock = st.selectbox(
+            "🔍 View Opportunity Insight",
+            op_df["Stock"]
+        )
+
+        msg = op_df.loc[op_df["Stock"] == selected_stock, "Message"].values[0]
+
+        st.success(msg)
