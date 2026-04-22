@@ -362,6 +362,7 @@ if filtered_prices.empty:
     st.stop()
 
 df_sum = calc_summary(filtered_prices)
+ranking_order = df_sum["Ticker"].tolist()
 
 if df_sum.empty:
     st.warning("⚠️ Not enough data to compute returns. Each stock needs at least 2 price points.")
@@ -557,6 +558,7 @@ with t2:
 # ══════════════════════════════════════════════
 with t3:
     st.subheader("Monthly Returns (%)")
+    sort_monthly = st.toggle("Sort by Performance", value=True, key="sort_monthly")
     m_data = load_sheet(file_path, SHEET_MONTHLY)
     if m_data is not None:
         m_data = apply_name_map(m_data, name_map)
@@ -564,6 +566,10 @@ with t3:
         cols_avail = [c for c in selected_stocks if c in m_data.columns]
         if cols_avail:
             f_m = m_data[m_data.index.year.isin(selected_years)][cols_avail].sort_index(ascending=False)
+            # 🔥 Apply ranking order if toggle ON
+            if sort_monthly:
+                ordered_cols = [c for c in ranking_order if c in f_m.columns]
+                f_m = f_m[ordered_cols]
             f_m.index = f_m.index.strftime("%Y-%b")
             st.dataframe(
                 f_m.style.background_gradient(cmap="RdYlGn", axis=None).format("{:.2f}%"),
@@ -580,6 +586,7 @@ with t3:
 # ══════════════════════════════════════════════
 with t4:
     st.subheader("Quarterly Returns (%)")
+    sort_quarterly = st.toggle("Sort by Performance", value=True, key="sort_quarterly")
     q_data = load_sheet(file_path, SHEET_QUARTERLY)
     if q_data is not None:
         q_data = apply_name_map(q_data, name_map)
@@ -588,7 +595,14 @@ with t4:
 
         cols_avail = [c for c in selected_stocks if c in q_data.columns]
         if cols_avail:
+            
             f_q = q_data[q_data.index.year.isin(selected_years)][cols_avail].sort_index(ascending=False)
+            # 🔥 Apply ranking order if toggle ON
+            if sort_quarterly:
+                ordered_cols = [c for c in ranking_order if c in f_q.columns]
+                f_q = f_q[ordered_cols]
+
+            
 
             # FIX #2: Cap the expected quarter grid at the CURRENT quarter — never show future quarters.
             # e.g. if today is in Q1 2026, grid ends at Q1 2026, not Q4 2026.
