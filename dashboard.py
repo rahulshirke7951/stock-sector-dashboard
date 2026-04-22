@@ -667,10 +667,9 @@ with t5:
                 if target_indices.empty:
                     st.warning("⚠️ No data found for the selected months.")
                 else:
-
                      # 🔥 Decide column order FIRST (OUTSIDE)
                 if sort_daily:
-                            ordered_cols = [c for c in ranking_order if c in selected_stocks]
+                    ordered_cols = [c for c in ranking_order if c in selected_stocks]
                 else: 
                     ordered_cols = selected_stocks
                     # ✅ Safety fallback
