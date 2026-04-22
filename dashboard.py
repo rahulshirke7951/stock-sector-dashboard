@@ -674,34 +674,38 @@ with t5:
                 if target_indices.empty:
                     st.warning("⚠️ No data found for the selected months.")
                 else:
-                     # 🔥 Decide column order FIRST (OUTSIDE)
-                        if sort_daily:
-                            if sort_mode == "Current Performance":
-                                ordered_cols = [c for c in ranking_order_current if c in selected_stocks]
-                            else:
-                                ordered_cols = [c for c in ranking_order if c in selected_stocks]
+                    # 🔥 Decide column order FIRST
+                    if sort_daily:
+                        if sort_mode == "Current Performance":
+                            # ⚠️ TEMP fallback (will define later properly)
+                            ordered_cols = selected_stocks
                         else:
-                            ordered_cols = selected_stocks
-                    
+                            ordered_cols = [c for c in ranking_order if c in selected_stocks]
+                    else:
+                        ordered_cols = selected_stocks
+                
                     # ✅ Safety fallback
-                        if not ordered_cols:
-                            ordered_cols = selected_stocks
-                                    
-                    # ✅ Now compute returns
-                        daily_ret_full = (
-                            prices_df[ordered_cols]
-                            .loc[:target_indices[-1]]
-                            .pct_change() * 100
-                        )   
-                  
-                        day_view = daily_ret_full.loc[target_indices].copy()
-
+                    if not ordered_cols:
+                        ordered_cols = selected_stocks
+                
+                    # ✅ Compute returns
+                    daily_ret_full = (
+                        prices_df[ordered_cols]
+                        .loc[:target_indices[-1]]
+                        .pct_change() * 100
+                    )
+                
+                    day_view = daily_ret_full.loc[target_indices].copy()
+                
+                    # ✅ NOW compute summary (VERY IMPORTANT: stays inside else)
                     summary_df = pd.DataFrame({
                         "Total Return (%)":   ((1 + day_view / 100).prod() - 1) * 100,
                         "Best Day (%)":       day_view.max(),
                         "Worst Day (%)":      day_view.min(),
                         "Avg Daily Move (%)": day_view.mean(),
                     }).sort_values("Total Return (%)", ascending=False)
+                
+                    # ✅ NOW define ranking
                     ranking_order_current = summary_df.index.tolist()
                     top_2_names    = summary_df.head(2).index.tolist()
                     overall_winner = summary_df.index[0]
