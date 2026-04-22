@@ -684,9 +684,9 @@ with t5:
                             ordered_cols = selected_stocks
                     
                     # ✅ Safety fallback
-                    if not ordered_cols:
-                        ordered_cols = selected_stocks
-                                
+                        if not ordered_cols:
+                            ordered_cols = selected_stocks
+                                    
                     # ✅ Now compute returns
                     daily_ret_full = (
                         prices_df[ordered_cols]
