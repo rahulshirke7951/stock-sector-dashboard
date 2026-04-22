@@ -640,6 +640,7 @@ with t4:
 # TAB 5 — DAILY HEATMAP
 # ══════════════════════════════════════════════
 with t5:
+    sort_daily = st.toggle("Sort by Performance", value=True, key="sort_daily")
     available_months = sorted(
         prices_df[prices_df.index.year.isin(selected_years)].index.strftime("%Y-%m").unique().tolist(),
         reverse=True,
@@ -667,7 +668,18 @@ with t5:
                     st.warning("⚠️ No data found for the selected months.")
                 else:
                     daily_ret_full = (
-                        prices_df[selected_stocks]
+                        # 🔥 Apply ranking order if toggle ON
+                        if sort_daily:
+                            ordered_cols = [c for c in ranking_order if c in selected_stocks]
+                        else:
+                            ordered_cols = selected_stocks
+                        
+                        daily_ret_full = (
+                            prices_df[ordered_cols]
+                            .loc[:target_indices[-1]]
+                            .pct_change() * 100
+                        )
+                        
                         .loc[:target_indices[-1]]
                         .pct_change() * 100
                     )
@@ -738,7 +750,7 @@ with t5:
                     )
 
                     st.subheader("📈 Absolute Price History (Selected Period)")
-                    period_prices = prices_df.loc[target_indices, selected_stocks].copy()
+                    period_prices = prices_df.loc[target_indices, ordered_cols].copy()
                     period_prices.index = period_prices.index.strftime("%Y-%m-%d")
                     st.dataframe(period_prices.sort_index(ascending=False), use_container_width=True)
 
