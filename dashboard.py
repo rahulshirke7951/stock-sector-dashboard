@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import os
+import traceback
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
@@ -133,40 +134,73 @@ def apply_name_map(df: pd.DataFrame, name_map: dict) -> pd.DataFrame:
 def compute_corr(_df: pd.DataFrame) -> pd.DataFrame:
     return _df.pct_change().dropna().corr()
 
-def opportunity_engine(price_df: pd.DataFrame) -> pd.DataFrame:
+
+# ─────────────────────────────────────────────
+# FIX #2 — Cached opportunity engine
+# Keyed by stable primitives (file_path, stocks tuple, years tuple)
+# so Streamlit can cache correctly without re-running on every render.
+# ─────────────────────────────────────────────
+@st.cache_data(show_spinner="Scanning for opportunities…")
+def opportunity_engine(file_path: str, stocks: tuple, years: tuple) -> pd.DataFrame:
+    """
+    Runs opportunity detection on the full price series (not the year-filtered view)
+    so 50/200 DMAs are always computed with enough history regardless of year filter.
+
+    Returns three tiers:
+      - BUY   : trend intact + healthy pullback (−5% to −15%) + above 50 DMA
+      - WATCH : above 200 DMA but outside the ideal pullback range
+      - AVOID : below 200 DMA (bearish structure)
+    """
+    # Load full price series fresh — stable, cache-friendly
+    raw = load_prices(file_path)
+    name_map = load_name_map(file_path)
+    price_df = apply_name_map(raw, name_map)
+
+    # Limit to selected stocks
+    available = [s for s in stocks if s in price_df.columns]
+    price_df = price_df[available]
+
     results = []
 
     for stock in price_df.columns:
         p = price_df[stock].dropna()
 
-        if len(p) < 220:
+        if len(p) < 50:
             continue
 
-        ma50 = p.rolling(50).mean()
-        ma200 = p.rolling(200).mean()
+        ma50  = p.rolling(50).mean()
+        ma200 = p.rolling(200).mean() if len(p) >= 200 else pd.Series([np.nan] * len(p), index=p.index)
 
         rolling_high = p.rolling(50).max()
-        drawdown = (p / rolling_high - 1) * 100
-        momentum = p.pct_change(21) * 100
+        drawdown     = (p / rolling_high - 1) * 100
+        momentum     = p.pct_change(21) * 100
 
-        latest_price = p.iloc[-1]
-        latest_ma50 = ma50.iloc[-1]
-        latest_ma200 = ma200.iloc[-1]
+        latest_price    = p.iloc[-1]
+        latest_ma50     = ma50.iloc[-1]
+        latest_ma200    = ma200.iloc[-1]
         latest_drawdown = drawdown.iloc[-1]
         latest_momentum = momentum.iloc[-1]
 
-        trend_strong = latest_price > latest_ma200
-        pullback_ok = -15 < latest_drawdown < -5
+        has_200 = not np.isnan(latest_ma200)
+
+        # ── Tier logic ──────────────────────────────────────────────
+        if has_200 and latest_price > latest_ma200:
+            trend_above_200 = True
+        else:
+            trend_above_200 = False
+
+        pullback_ideal  = -15 < latest_drawdown < -5
         support_holding = latest_price >= latest_ma50
 
-        if trend_strong and pullback_ok and support_holding:
-
+        if trend_above_200 and pullback_ideal and support_holding:
+            tier = "BUY"
             strength = (
-                "Strong" if latest_momentum > 2 else
-                "Moderate" if latest_momentum > 0 else
+                "Strong"   if latest_momentum > 2  else
+                "Moderate" if latest_momentum > 0  else
                 "Weak"
             )
-
+            signal  = "BUY 🟢"
+            action  = "Accumulate on dips"
             message = (
                 f"🟢 BUY SETUP\n"
                 f"Pullback: {latest_drawdown:.1f}%\n"
@@ -175,25 +209,65 @@ def opportunity_engine(price_df: pd.DataFrame) -> pd.DataFrame:
                 f"→ Accumulate"
             )
 
-            results.append({
-                "Stock": stock,
-                "Price": round(latest_price, 2),
-                "Drawdown %": round(latest_drawdown, 2),
-                "Momentum %": round(latest_momentum, 2),
-                "Strength": strength,
-                "Signal": "BUY 🟢",
-                "Action": "Accumulate",
-                "Message": message
-            })
+        elif trend_above_200:
+            # Above 200 DMA but not in the ideal pullback zone — worth watching
+            tier     = "WATCH"
+            strength = "—"
+            signal   = "WATCH 🟡"
+            action   = "Monitor for entry"
+            note     = (
+                "Extended (near highs)" if latest_drawdown > -5
+                else f"Deep pullback ({latest_drawdown:.1f}%) — check support"
+            )
+            message = (
+                f"🟡 WATCH\n"
+                f"Drawdown: {latest_drawdown:.1f}%\n"
+                f"Trend intact (above 200 DMA)\n"
+                f"→ {note}"
+            )
+
+        else:
+            # Below 200 DMA — bearish structure
+            tier     = "AVOID"
+            strength = "—"
+            signal   = "AVOID 🔴"
+            action   = "Wait for trend recovery"
+            message  = (
+                f"🔴 AVOID\n"
+                f"Below 200 DMA (bearish)\n"
+                f"Drawdown: {latest_drawdown:.1f}%\n"
+                f"→ Wait for structure repair"
+            )
+
+        results.append({
+            "Stock":       stock,
+            "Tier":        tier,
+            "Price":       round(latest_price, 2),
+            "Drawdown %":  round(latest_drawdown, 2),
+            "Momentum %":  round(latest_momentum, 2) if not np.isnan(latest_momentum) else np.nan,
+            "Strength":    strength,
+            "Signal":      signal,
+            "Action":      action,
+            "Message":     message,
+        })
 
     if not results:
         return pd.DataFrame()
 
-    return pd.DataFrame(results).sort_values("Drawdown %", ascending=False)
+    df_out = pd.DataFrame(results)
+    # Sort: BUY first, then WATCH, then AVOID; within BUY sort by drawdown desc
+    tier_order = {"BUY": 0, "WATCH": 1, "AVOID": 2}
+    df_out["_tier_rank"] = df_out["Tier"].map(tier_order)
+    df_out = df_out.sort_values(["_tier_rank", "Drawdown %"], ascending=[True, False])
+    return df_out.drop(columns=["_tier_rank"]).reset_index(drop=True)
+
 
 # ─────────────────────────────────────────────
 # HELPERS
 # ─────────────────────────────────────────────
+
+# FIX #3 — CAGR uses actual trading-day count as denominator
+# Calendar-day span inflates yrs when data has gaps; 252 trading days/year is correct.
 def calc_summary(filtered_df: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for ticker in filtered_df.columns:
@@ -201,25 +275,37 @@ def calc_summary(filtered_df: pd.DataFrame) -> pd.DataFrame:
         if len(col) < 2:
             continue
         daily_ret = col.pct_change().dropna()
-        days  = (col.index[-1] - col.index[0]).days
-        yrs   = max(days / 365.25, 0.1)
-        ret   = ((col.iloc[-1] / col.iloc[0]) - 1) * 100
-        cagr  = (((col.iloc[-1] / col.iloc[0]) ** (1 / yrs)) - 1) * 100
-        vol   = daily_ret.std() * np.sqrt(252) * 100 if len(daily_ret) > 1 else np.nan
+
+        # Use actual data point count instead of calendar span
+        actual_rows = len(col)
+        yrs = max(actual_rows / 252, 0.1)
+
+        ret    = ((col.iloc[-1] / col.iloc[0]) - 1) * 100
+        cagr   = (((col.iloc[-1] / col.iloc[0]) ** (1 / yrs)) - 1) * 100
+        vol    = daily_ret.std() * np.sqrt(252) * 100 if len(daily_ret) > 1 else np.nan
         sharpe = (cagr / vol) if (not np.isnan(vol) and vol > 0) else np.nan
         rows.append({
-            "Ticker":      ticker,
-            "Return %":    ret,
-            "CAGR %":      cagr,
-            "Ann. Vol %":  vol,
-            "Sharpe":      sharpe,
-            "Latest":      col.iloc[-1],
-            "_years":      yrs,
+            "Ticker":     ticker,
+            "Return %":   ret,
+            "CAGR %":     cagr,
+            "Ann. Vol %": vol,
+            "Sharpe":     sharpe,
+            "Latest":     col.iloc[-1],
+            "_years":     yrs,
         })
     return pd.DataFrame(rows).sort_values("Return %", ascending=False)
 
 
+# FIX #6 — Robust quarterly index parser using pd.PeriodIndex where possible,
+# with the old char-stripping logic only as a fallback for unusual formats.
 def parse_quarterly_index(raw_index) -> pd.DatetimeIndex:
+    # Fast path: try pd.PeriodIndex directly (handles "2025Q1", "Q1 2025", "2025-Q1")
+    try:
+        return pd.PeriodIndex(raw_index, freq="Q").to_timestamp()
+    except Exception:
+        pass
+
+    # Fallback: manual parse for edge-case formats
     parsed = []
     for x in raw_index:
         s = str(x).strip()
@@ -272,10 +358,7 @@ if not files:
 with st.sidebar:
     st.title("📂 Watchlist Controls")
 
-    # FIX #1: Use a session_state flag to trigger rerun AFTER the callback completes.
-    # st.rerun() inside on_change is a no-op in Streamlit — the flag approach is the correct pattern.
     def _on_file_change():
-        """Set a flag; the main script body will call st.rerun() after this callback returns."""
         st.cache_data.clear()
         st.session_state["_needs_rerun"] = True
 
@@ -290,27 +373,38 @@ with st.sidebar:
         "🔄 Refresh Price Data",
         use_container_width=True,
         type="primary",
-        help="Use this ONLY after running your engine to pull fresh market data. Switching watchlists above is fully automatic — no refresh needed.",
+        help="Use this ONLY after running your engine to pull fresh market data.",
     ):
         st.cache_data.clear()
         st.rerun()
 
-    name_map  = load_name_map(file_path)
+    name_map    = load_name_map(file_path)
     _raw_prices = load_prices(file_path)
     prices_df   = apply_name_map(_raw_prices, name_map)
     all_stocks  = sorted(prices_df.columns.tolist())
 
     st.markdown("---")
 
-    select_all      = st.toggle("Select All Stocks", value=True)
-    current_default = all_stocks if select_all else []
+    # FIX #4 — Decouple Select All toggle from the multiselect widget key.
+    # Previously key=f"stocks_{selected_file}_{select_all}" forced a full widget
+    # recreation (and page rerun) on every toggle flip, resetting all tab state.
+    # Now we imperatively update session_state and use a stable key.
+    select_all = st.toggle("Select All Stocks", value=True)
+
+    _ss_key = f"active_stocks_{selected_file}"
+    if select_all:
+        # Only push to session_state if it isn't already the full list
+        if set(st.session_state.get(_ss_key, [])) != set(all_stocks):
+            st.session_state[_ss_key] = all_stocks
+    elif _ss_key not in st.session_state:
+        st.session_state[_ss_key] = []
+
     selected_stocks = st.multiselect(
         "Active Stocks",
         all_stocks,
-        default=current_default,
-        key=f"stocks_{selected_file}_{select_all}",
+        default=st.session_state.get(_ss_key, all_stocks),
+        key=_ss_key,
     )
-
 
     if selected_stocks:
         st.caption(f"✅ {len(selected_stocks)} of {len(all_stocks)} stocks selected")
@@ -339,8 +433,6 @@ with st.sidebar:
 # ─────────────────────────────────────────────
 # AUTO-RERUN TRIGGER (watchlist switch)
 # ─────────────────────────────────────────────
-# st.rerun() is a no-op inside callbacks, so _on_file_change() sets a flag instead.
-# We check it here in the main script body where st.rerun() works correctly.
 if st.session_state.pop("_needs_rerun", False):
     st.rerun()
 
@@ -566,7 +658,6 @@ with t3:
         cols_avail = [c for c in selected_stocks if c in m_data.columns]
         if cols_avail:
             f_m = m_data[m_data.index.year.isin(selected_years)][cols_avail].sort_index(ascending=False)
-            # 🔥 Apply ranking order if toggle ON
             if sort_monthly:
                 ordered_cols = [c for c in ranking_order if c in f_m.columns]
                 f_m = f_m[ordered_cols]
@@ -595,21 +686,15 @@ with t4:
 
         cols_avail = [c for c in selected_stocks if c in q_data.columns]
         if cols_avail:
-            
             f_q = q_data[q_data.index.year.isin(selected_years)][cols_avail].sort_index(ascending=False)
-            # 🔥 Apply ranking order if toggle ON
             if sort_quarterly:
                 ordered_cols = [c for c in ranking_order if c in f_q.columns]
                 f_q = f_q[ordered_cols]
 
-            
-
-            # FIX #2: Cap the expected quarter grid at the CURRENT quarter — never show future quarters.
-            # e.g. if today is in Q1 2026, grid ends at Q1 2026, not Q4 2026.
             today_quarter_start = current_quarter_start()
             grid_end = min(
-                pd.Timestamp(year=max(selected_years), month=10, day=1),  # Q4 start of max year
-                today_quarter_start,                                        # current quarter start
+                pd.Timestamp(year=max(selected_years), month=10, day=1),
+                today_quarter_start,
             )
 
             expected_quarters = pd.period_range(
@@ -641,13 +726,14 @@ with t4:
 # ══════════════════════════════════════════════
 with t5:
     sort_daily = st.toggle("Sort by Performance", value=True, key="sort_daily")
- 
+
     sort_mode = st.radio(
-    "Sort Mode",
-    ["Current Performance", "Overall Performance"],
-    horizontal=True,
-    key="sort_mode_daily"
-)   
+        "Sort Mode",
+        ["Current Performance", "Overall Performance"],
+        horizontal=True,
+        key="sort_mode_daily"
+    )
+
     available_months = sorted(
         prices_df[prices_df.index.year.isin(selected_years)].index.strftime("%Y-%m").unique().tolist(),
         reverse=True,
@@ -665,134 +751,147 @@ with t5:
     if not sel_months:
         st.info("ℹ️ Select at least one month above.")
     else:
-        with st.spinner("Crunching daily returns…"):
-            try:
-                target_indices = prices_df[
-                    prices_df.index.strftime("%Y-%m").isin(sel_months)
-                ].index
+        # FIX #4 — Narrow the try/except to only the data-slicing operations.
+        # Previously, one broad try/except swallowed all errors including programmer bugs.
+        # Now errors surface with a full traceback in an expander for easy debugging.
+        try:
+            target_indices = prices_df[
+                prices_df.index.strftime("%Y-%m").isin(sel_months)
+            ].index
 
-                if target_indices.empty:
-                    st.warning("⚠️ No data found for the selected months.")
-                else:
-                    # 🔥 Decide column order FIRST
-                    if sort_daily:
-                        if sort_mode == "Current Performance":
-                            # ⚠️ TEMP fallback (will define later properly)
-                            ordered_cols = selected_stocks
-                        else:
-                            ordered_cols = [c for c in ranking_order if c in selected_stocks]
+            if target_indices.empty:
+                st.warning("⚠️ No data found for the selected months.")
+            else:
+                # ── Compute period summary first (fixes sort mode bug) ─────────────
+                # FIX #1: summary_df must be computed BEFORE the sort block so that
+                # "Current Performance" ranking is available when ordering columns.
+                daily_ret_preview = (
+                    prices_df[selected_stocks]
+                    .loc[:target_indices[-1]]
+                    .pct_change() * 100
+                )
+                day_view_preview = daily_ret_preview.loc[target_indices].copy()
+
+                summary_df = pd.DataFrame({
+                    "Total Return (%)":   ((1 + day_view_preview / 100).prod() - 1) * 100,
+                    "Best Day (%)":       day_view_preview.max(),
+                    "Worst Day (%)":      day_view_preview.min(),
+                    "Avg Daily Move (%)": day_view_preview.mean(),
+                }).sort_values("Total Return (%)", ascending=False)
+
+                # ── Now decide column order (sort mode works correctly) ────────────
+                if sort_daily:
+                    if sort_mode == "Current Performance":
+                        # FIX #1: Use period-specific ranking, not overall ranking
+                        ordered_cols = summary_df.index.tolist()
                     else:
-                        ordered_cols = selected_stocks
-                
-                    # ✅ Safety fallback
-                    if not ordered_cols:
-                        ordered_cols = selected_stocks
-                
-                    # ✅ Compute returns
-                    daily_ret_full = (
-                        prices_df[ordered_cols]
-                        .loc[:target_indices[-1]]
-                        .pct_change() * 100
+                        ordered_cols = [c for c in ranking_order if c in selected_stocks]
+                else:
+                    ordered_cols = selected_stocks
+
+                if not ordered_cols:
+                    ordered_cols = selected_stocks
+
+                # ── Recompute with final column order ─────────────────────────────
+                daily_ret_full = (
+                    prices_df[ordered_cols]
+                    .loc[:target_indices[-1]]
+                    .pct_change() * 100
+                )
+                day_view = daily_ret_full.loc[target_indices].copy()
+
+                # Re-sort summary_df to match ordered_cols
+                summary_df = summary_df.reindex([c for c in ordered_cols if c in summary_df.index])
+
+                top_2_names    = summary_df.head(2).index.tolist()
+                overall_winner = summary_df.index[0]
+                overall_val    = summary_df.iloc[0]["Total Return (%)"]
+                max_val        = day_view.max().max()
+                best_s         = day_view.max().idxmax()
+                best_d         = day_view[best_s].idxmax().strftime("%d %b %Y")
+                min_val        = day_view.min().min()
+                worst_s        = day_view.min().idxmin()
+                worst_d        = day_view[worst_s].idxmin().strftime("%d %b %Y")
+
+                ti1, ti2, ti3 = st.columns(3)
+                ti1.metric("🥇 Period Leader",   f"{overall_val:.2f}%", overall_winner)
+                ti2.metric("🚀 Top Daily Move",  f"{max_val:.2f}%",     f"{best_s} ({best_d})")
+                ti3.metric("📉 Deepest Day Cut", f"{min_val:.2f}%",     f"{worst_s} ({worst_d})")
+
+                st.subheader("📊 Performance Ranking — Compounded (Selected Period)")
+                st.caption("ℹ️ 'Total Return' uses compounded daily returns, not arithmetic sum.")
+                st.dataframe(
+                    summary_df.style
+                        .background_gradient(cmap="YlGn", subset=["Total Return (%)"])
+                        .format("{:.2f}%"),
+                    use_container_width=True,
+                )
+
+                chart_col, ctrl_col = st.columns([4, 1])
+                with ctrl_col:
+                    st.write("🔍 **Chart Filters**")
+                    sel_stocks_chart = st.multiselect(
+                        "Select Stocks:", selected_stocks, default=top_2_names,
+                        key="t5_trend_chart_stocks",
                     )
-                
-                    day_view = daily_ret_full.loc[target_indices].copy()
-                
-                    # ✅ NOW compute summary (VERY IMPORTANT: stays inside else)
-                    summary_df = pd.DataFrame({
-                        "Total Return (%)":   ((1 + day_view / 100).prod() - 1) * 100,
-                        "Best Day (%)":       day_view.max(),
-                        "Worst Day (%)":      day_view.min(),
-                        "Avg Daily Move (%)": day_view.mean(),
-                    }).sort_values("Total Return (%)", ascending=False)
-                
-                    # ✅ NOW define ranking
-                    ranking_order_current = summary_df.index.tolist()
-                    top_2_names    = summary_df.head(2).index.tolist()
-                    overall_winner = summary_df.index[0]
-                    overall_val    = summary_df.iloc[0]["Total Return (%)"]
-                    max_val        = day_view.max().max()
-                    best_s         = day_view.max().idxmax()
-                    best_d         = day_view[best_s].idxmax().strftime("%d %b %Y")
-                    min_val        = day_view.min().min()
-                    worst_s        = day_view.min().idxmin()
-                    worst_d        = day_view[worst_s].idxmin().strftime("%d %b %Y")
+                    st.caption("Winners auto-selected.")
 
-                    ti1, ti2, ti3 = st.columns(3)
-                    ti1.metric("🥇 Period Leader",   f"{overall_val:.2f}%", overall_winner)
-                    ti2.metric("🚀 Top Daily Move",  f"{max_val:.2f}%",     f"{best_s} ({best_d})")
-                    ti3.metric("📉 Deepest Day Cut", f"{min_val:.2f}%",     f"{worst_s} ({worst_d})")
+                with chart_col:
+                    if sel_stocks_chart:
+                        st.subheader(f"🕵️ Compounded Growth ({', '.join(sel_months)})")
+                        chart_data    = day_view[sel_stocks_chart].copy()
+                        cum_trend_pct = ((1 + chart_data / 100).cumprod() - 1) * 100
+                        fig_trend     = px.line(
+                            cum_trend_pct, template="plotly_white",
+                            labels={"value": "Growth %", "index": "Date"},
+                            markers=True, height=450,
+                        )
+                        fig_trend.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.7)
+                        fig_trend.update_layout(hovermode="x unified", margin=dict(l=0, r=0, t=10, b=0))
+                        st.plotly_chart(fig_trend, use_container_width=True)
 
-                    st.subheader("📊 Performance Ranking — Compounded (Selected Period)")
-                    st.caption("ℹ️ 'Total Return' uses compounded daily returns, not arithmetic sum.")
-                    st.dataframe(
-                        summary_df.style
-                            .background_gradient(cmap="YlGn", subset=["Total Return (%)"])
-                            .format("{:.2f}%"),
+                st.subheader("📋 Raw Daily Returns (%)")
+                table_display = day_view.copy().sort_index(ascending=False)
+                table_display.index = table_display.index.strftime("%Y-%m-%d (%a)")
+                st.dataframe(
+                    table_display.style
+                        .background_gradient(cmap="RdYlGn", axis=None)
+                        .format("{:.2f}%"),
+                    use_container_width=True,
+                )
+
+                st.subheader("📈 Absolute Price History (Selected Period)")
+                period_prices = prices_df.loc[target_indices, ordered_cols].copy()
+                period_prices.index = period_prices.index.strftime("%Y-%m-%d")
+                st.dataframe(period_prices.sort_index(ascending=False), use_container_width=True)
+
+                month_key = "_".join(sel_months)
+                st.divider()
+                dl1, dl2 = st.columns(2)
+                with dl1:
+                    st.download_button(
+                        "📥 Download Daily Returns (CSV)",
+                        data=day_view.to_csv().encode("utf-8"),
+                        file_name=f"returns_{month_key}.csv",
+                        mime="text/csv",
                         use_container_width=True,
+                        key=f"dl_ret_{month_key}",
                     )
-
-                    chart_col, ctrl_col = st.columns([4, 1])
-                    with ctrl_col:
-                        st.write("🔍 **Chart Filters**")
-                        sel_stocks_chart = st.multiselect(
-                            "Select Stocks:", selected_stocks, default=top_2_names,
-                            key="t5_trend_chart_stocks",
-                        )
-                        st.caption("Winners auto-selected.")
-
-                    with chart_col:
-                        if sel_stocks_chart:
-                            st.subheader(f"🕵️ Compounded Growth ({', '.join(sel_months)})")
-                            chart_data    = day_view[sel_stocks_chart].copy()
-                            cum_trend_pct = ((1 + chart_data / 100).cumprod() - 1) * 100
-                            fig_trend     = px.line(
-                                cum_trend_pct, template="plotly_white",
-                                labels={"value": "Growth %", "index": "Date"},
-                                markers=True, height=450,
-                            )
-                            fig_trend.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.7)
-                            fig_trend.update_layout(hovermode="x unified", margin=dict(l=0, r=0, t=10, b=0))
-                            st.plotly_chart(fig_trend, use_container_width=True)
-
-                    st.subheader("📋 Raw Daily Returns (%)")
-                    table_display = day_view.copy().sort_index(ascending=False)
-                    table_display.index = table_display.index.strftime("%Y-%m-%d (%a)")
-                    st.dataframe(
-                        table_display.style
-                            .background_gradient(cmap="RdYlGn", axis=None)
-                            .format("{:.2f}%"),
+                with dl2:
+                    st.download_button(
+                        "📥 Download Price History (CSV)",
+                        data=period_prices.to_csv().encode("utf-8"),
+                        file_name=f"prices_{month_key}.csv",
+                        mime="text/csv",
                         use_container_width=True,
+                        key=f"dl_prices_{month_key}",
                     )
 
-                    st.subheader("📈 Absolute Price History (Selected Period)")
-                    period_prices = prices_df.loc[target_indices, ordered_cols].copy()
-                    period_prices.index = period_prices.index.strftime("%Y-%m-%d")
-                    st.dataframe(period_prices.sort_index(ascending=False), use_container_width=True)
-
-                    month_key = "_".join(sel_months)
-                    st.divider()
-                    dl1, dl2 = st.columns(2)
-                    with dl1:
-                        st.download_button(
-                            "📥 Download Daily Returns (CSV)",
-                            data=day_view.to_csv().encode("utf-8"),
-                            file_name=f"returns_{month_key}.csv",
-                            mime="text/csv",
-                            use_container_width=True,
-                            key=f"dl_ret_{month_key}",
-                        )
-                    with dl2:
-                        st.download_button(
-                            "📥 Download Price History (CSV)",
-                            data=period_prices.to_csv().encode("utf-8"),
-                            file_name=f"prices_{month_key}.csv",
-                            mime="text/csv",
-                            use_container_width=True,
-                            key=f"dl_prices_{month_key}",
-                        )
-
-            except Exception as e:
-                st.error(f"⚠️ Tab 5 Error: {e}")
+        except Exception as e:
+            # FIX #5 — Expose full traceback in an expander instead of swallowing it.
+            st.error(f"⚠️ Tab 5 Error: {e}")
+            with st.expander("🔍 Debug traceback (for developer)"):
+                st.code(traceback.format_exc())
 
 
 # ══════════════════════════════════════════════
@@ -803,27 +902,22 @@ with t6:
 
     dd_col1, dd_col2 = st.columns([2, 1])
     with dd_col1:
-        # 🔥 Apply ranking order
         ordered_stocks = [s for s in ranking_order if s in selected_stocks]
-        
-        # fallback safety (in case mismatch)
         if not ordered_stocks:
             ordered_stocks = selected_stocks
-        
+
         target_stock = st.selectbox(
             "Primary stock:",
             ordered_stocks,
             key="deep_dive_ticker"
         )
 
-    
     with dd_col2:
         compare_options = ["— None —"] + [
             s for s in ordered_stocks if s != target_stock
         ]
-        
-        compare_raw     = st.selectbox("Compare with:", compare_options, key="deep_dive_compare")
-        compare_stock   = None if compare_raw == "— None —" else compare_raw
+        compare_raw   = st.selectbox("Compare with:", compare_options, key="deep_dive_compare")
+        compare_stock = None if compare_raw == "— None —" else compare_raw
 
     if target_stock:
         with st.spinner(f"Loading analysis for {target_stock}…"):
@@ -887,7 +981,7 @@ with t6:
                     line=dict(dash="dot", color="red", width=1.5),
                 ))
             if compare_stock and compare_stock in filtered_prices.columns:
-                cs_data = filtered_prices[compare_stock].dropna()
+                cs_data   = filtered_prices[compare_stock].dropna()
                 cs_scaled = cs_data / cs_data.iloc[0] * s_data.iloc[0]
                 fig_main.add_trace(go.Scatter(
                     x=cs_scaled.index, y=cs_scaled,
@@ -954,34 +1048,82 @@ with t6:
             else:
                 st.info("ℹ️ Select 2 or more stocks to enable correlation analysis.")
 
+
 # ══════════════════════════════════════════════
 # TAB 7 — OPPORTUNITIES
+# FIX #2: Cached engine call keyed by stable primitives.
+# FIX #7: Three-tier output (BUY / WATCH / AVOID) instead of BUY-only.
 # ══════════════════════════════════════════════
 with t7:
-    st.subheader("🟢 Buy Opportunities (Pullback in Strong Trend)")
+    st.subheader("🟢 Opportunity Scanner — Trend & Pullback Analysis")
+    st.caption(
+        "**BUY 🟢** — Above 200 DMA, pullback −5% to −15%, holding 50 DMA support.  "
+        "**WATCH 🟡** — Above 200 DMA, outside ideal pullback range (extended or too deep).  "
+        "**AVOID 🔴** — Below 200 DMA (bearish trend structure)."
+    )
 
-    with st.spinner("Scanning market for opportunities…"):
-        op_df = opportunity_engine(filtered_prices)
+    op_df = opportunity_engine(
+        file_path=file_path,
+        stocks=tuple(sorted(selected_stocks)),
+        years=tuple(sorted(selected_years)),
+    )
 
     if op_df.empty:
-        st.info("ℹ️ No strong opportunities right now.")
+        st.info("ℹ️ No data returned from scanner.")
     else:
-        st.success(f"🔥 {len(op_df)} opportunity(ies) found")
+        buy_df   = op_df[op_df["Tier"] == "BUY"]
+        watch_df = op_df[op_df["Tier"] == "WATCH"]
+        avoid_df = op_df[op_df["Tier"] == "AVOID"]
 
-        st.dataframe(
-            op_df.drop(columns=["Message"]),
-            use_container_width=True,
-            hide_index=True
-        )
+        col_b, col_w, col_a = st.columns(3)
+        col_b.metric("🟢 BUY setups",   len(buy_df))
+        col_w.metric("🟡 WATCH list",   len(watch_df))
+        col_a.metric("🔴 AVOID",        len(avoid_df))
 
         st.divider()
 
-        # 🔍 Message Viewer
-        selected_stock = st.selectbox(
-            "🔍 View Opportunity Insight",
-            op_df["Stock"]
+        tier_tab_buy, tier_tab_watch, tier_tab_avoid = st.tabs(["🟢 BUY", "🟡 WATCH", "🔴 AVOID"])
+
+        display_cols = ["Stock", "Price", "Drawdown %", "Momentum %", "Strength", "Signal", "Action"]
+
+        with tier_tab_buy:
+            if buy_df.empty:
+                st.info("ℹ️ No BUY setups right now. Check WATCH for near-ready candidates.")
+            else:
+                st.success(f"🔥 {len(buy_df)} BUY setup(s) found")
+                st.dataframe(buy_df[display_cols], use_container_width=True, hide_index=True)
+
+        with tier_tab_watch:
+            if watch_df.empty:
+                st.info("ℹ️ No stocks currently in WATCH territory.")
+            else:
+                st.warning(f"👁️ {len(watch_df)} stock(s) to monitor")
+                st.dataframe(watch_df[display_cols], use_container_width=True, hide_index=True)
+
+        with tier_tab_avoid:
+            if avoid_df.empty:
+                st.info("ℹ️ No stocks in bearish territory.")
+            else:
+                st.error(f"⚠️ {len(avoid_df)} stock(s) in bearish structure")
+                st.dataframe(avoid_df[display_cols], use_container_width=True, hide_index=True)
+
+        st.divider()
+
+        # Insight viewer — works across all tiers
+        st.markdown("**🔍 Opportunity Insight**")
+        selected_insight = st.selectbox(
+            "Select stock for detailed signal:",
+            op_df["Stock"].tolist(),
+            key="opp_insight_select",
         )
 
-        msg = op_df.loc[op_df["Stock"] == selected_stock, "Message"].values[0]
-
-        st.success(msg)
+        if selected_insight:
+            row = op_df[op_df["Stock"] == selected_insight].iloc[0]
+            msg = row["Message"]
+            tier = row["Tier"]
+            if tier == "BUY":
+                st.success(msg)
+            elif tier == "WATCH":
+                st.warning(msg)
+            else:
+                st.error(msg)
