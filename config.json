@@ -22,6 +22,20 @@
                 "^CRSLDX"
               ],
 
+    "Bajaj Group": [
+    "BAJAJ-AUTO.NS",
+    "BAJFINANCE.NS",
+    "BAJAJFINSV.NS",
+    "BAJAJHLDNG.NS",
+    "BAJAJHFL.NS",
+    "BAJAJCON.NS",
+    "BAJAJELEC.NS",
+    "BAJEL.NS",
+    "MUKAND.NS",
+    "MAHSCOOTER.NS",
+    "BAJAJHIND.NS",
+    "INDEF.NS"
+],
   "Metals": [
   "TATASTEEL.NS",
   "JSWSTEEL.NS",
