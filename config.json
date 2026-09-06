@@ -36,6 +36,51 @@
     "BAJAJHIND.NS",
     "BAJAJINDEF.NS"
 ],
+    "Tata Group": [
+    "TCS.NS",
+    "TATASTEEL.NS",
+    "TMPV.NS",
+    "TMCV.NS",
+    "TATACHEM.NS",
+    "TATACONSUM.NS",
+    "TATAPOWER.NS",
+    "TITAN.NS",
+    "TRENT.NS",
+    "VOLTAS.NS",
+    "INDHOTEL.NS",
+    "TATACOMM.NS",
+    "TATAELXSI.NS",
+    "TATATECH.NS",
+    "TATACAP.NS",
+    "TATAINVEST.NS",
+    "NELCO.NS",
+    "TTML.NS",
+    "TEJASNET.NS"
+],
+
+"Adani Group": [
+    "ADANIENT.NS",
+    "ADANIPORTS.NS",
+    "ADANIPOWER.NS",
+    "ADANIENSOL.NS",
+    "ADANIGREEN.NS",
+    "ATGL.NS",
+    "AMBUJACEM.NS",
+    "ACC.NS",
+    "NDTV.NS",
+    "SANGHIIND.NS"
+],
+
+"Reliance Group": [
+    "RELIANCE.NS",
+    "JIOFIN.NS",
+    "RIIL.NS",
+    "NETWORK18.NS",
+    "HATHWAY.NS",
+    "DEN.NS",
+    "ALOKINDS.NS"
+],
+    
   "Metals": [
   "TATASTEEL.NS",
   "JSWSTEEL.NS",
